@@ -194,6 +194,16 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * 输入框提交用：只夹到 [min, max]，**不吸附到 step**，并压到两位小数。
+ * step 只服务于加减按钮 / 拖动 / 方向键（那些地方"卡榫"是对的）；
+ * 手输必须原样收下，否则 32.5 的时薪会被四舍五入成 33。
+ */
+export function clampNumber(v: number, min: number, max: number): number {
+  if (Number.isNaN(v)) return min;
+  return round2(Math.min(max, Math.max(min, v)));
+}
+
 /** 金额显示：整数不带小数点，小数最多两位 */
 export function money(n: number): string {
   const v = round2(n);

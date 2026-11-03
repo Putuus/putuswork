@@ -1,6 +1,7 @@
 /** 通用小控件：数字输入（可拖动调节 + 卡榫手感）/ 开关 / 分段控件 / 字段 / 图标 */
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { clampNumber } from '../lib/calc';
 
 const KEY_STEP_DELAY = 360; // 按住多久开始连发
 const KEY_STEP_REPEAT = 70; // 连发间隔
@@ -82,7 +83,8 @@ export function NumberField({
     }
     const n = Number(trimmed);
     if (!Number.isFinite(n)) return;
-    onChange(clamp(n));
+    // 手输只夹范围，不吸附步长：32.5 就是 32.5，不能被 round(32.5/1)*1 变成 33
+    onChange(clampNumber(n, min, max));
   };
 
   /* ---------------- 拖动调数值（左右拖，一格一格“卡”过去） ---------------- */
