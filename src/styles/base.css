@@ -1,0 +1,340 @@
+/* ==========================================================================
+   Base —— 重置、排版、以及全站统一的“视觉对齐”规则
+   对齐纪律：
+     1) 页面左右边距只有 --gutter 一个来源，任何区块都不许自己写 margin-left；
+     2) 所有内容默认进 .wrap（限宽 + 居中）；
+     3) 列表/表格里同一列的文字统一左对齐，数字用等宽数字（tabular-nums）；
+     4) 只有“空状态、提示、月份标题、卡片副标题”这类孤立内容才居中。
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-1);
+  background: var(--page-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, p, figure {
+  margin: 0;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* 点一下不再闪那根竖线（很影响观感）；只有真的在敲字时才让它出现 */
+input,
+textarea,
+[contenteditable] {
+  caret-color: transparent;
+}
+
+input.is-typing,
+textarea.is-typing,
+[contenteditable].is-typing {
+  caret-color: auto;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+}
+
+a {
+  color: var(--accent-2);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+ul, ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent-glow);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* ---------- 布局容器：唯一的左右边距来源 ---------- */
+.page {
+  position: relative;
+  z-index: var(--z-content);
+  padding: 0 var(--gutter) 140px;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+}
+
+.stack > * + * {
+  margin-top: var(--stack-gap, var(--gap-4));
+}
+
+/* ---------- 排版 ---------- */
+.h1 {
+  font-size: 27px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.h2 {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.h3 {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+.dim {
+  color: var(--ink-4);
+}
+
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.tiny {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.center {
+  text-align: center;
+}
+
+.left {
+  text-align: left;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap-3);
+  margin-bottom: var(--gap-3);
+}
+
+/* 同一列文字左对齐的行（设置项、记录列表通用） */
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--gap-3);
+  text-align: left;
+  padding: 13px 4px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--hairline);
+}
+
+.row__label {
+  min-width: 0;
+  text-align: left;
+}
+
+.row__value {
+  text-align: right;
+  color: var(--ink-3);
+}
+
+.rowlist .row__label strong {
+  font-weight: 640;
+}
+
+/* 无障碍：仅屏幕阅读器可见 */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==========================================================================
+   滚动动效 1/6 —— Scroll-triggered：滚进屏幕就自己播完（卡片淡入）
+   JS 只负责加 .is-in，动画全在 CSS
+   ========================================================================== */
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 30px, 0) scale(0.986);
+  transition:
+    opacity var(--dur-3) var(--ease-out),
+    transform 760ms var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* ==========================================================================
+   滚动动效 3/6 —— Parallax：背景比前景滚得慢
+   JS 写入 --py（位移像素），元素自己决定方向/幅度
+   ========================================================================== */
+[data-parallax] {
+  transform: translate3d(0, var(--py, 0px), 0);
+  will-change: transform;
+}
+
+/* ==========================================================================
+   滚动动效 4/6 —— Sticky：滚到顶就钉住
+   ========================================================================== */
+.sticky-top {
+  position: sticky;
+  top: var(--sticky-top, 0px);
+  z-index: var(--z-sticky);
+}
+
+/* ==========================================================================
+   滚动动效 5/6 —— Scroll Snap：一次停一屏
+   ========================================================================== */
+.snap-scroller {
+  height: min(58vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: thin;
+  border-radius: var(--radius-lg);
+}
+
+.snap-panel {
+  min-height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--gap-4) var(--gap-4) var(--gap-5);
+}
+
+/* ==========================================================================
+   滚动动效 6/6 —— Horizontal Scroll：横向滚动（自带吸附）
+   ========================================================================== */
+.h-scroller {
+  display: flex;
+  gap: var(--gap-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--gutter);
+  padding: 4px 4px 14px;
+  margin-inline: -4px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.h-item {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+}
+
+/* 滚动条统一收拾干净 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(90, 104, 140, 0.32);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(90, 104, 140, 0.5);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ==========================================================================
+   动效偏好：用户开了“减少动态效果”就全部关掉
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  [data-parallax] {
+    transform: none !important;
+  }
+
+  .snap-scroller {
+    scroll-snap-type: none;
+  }
+}
+
+/* 窄屏兜底（主要给电脑用，窗口拖窄也不散架） */
+@media (max-width: 760px) {
+  :root {
+    --gutter: 16px;
+  }
+
+  .page {
+    padding-bottom: 120px;
+  }
+}
