@@ -27,6 +27,8 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+      # 测试不全绿不允许发布（审核 R7：原先只 build 不跑测试）
+      - run: pnpm test
       - run: pnpm build
       - uses: actions/upload-pages-artifact@v3
         with:
