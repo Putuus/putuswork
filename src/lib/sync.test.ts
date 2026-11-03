@@ -841,3 +841,263 @@ describe('在途请求不覆盖用户当场改的配置', () => {
     expect(saved.lastSha).toBeNull();
   });
 });
+
+/* ------------------ F2：远端会抹掉本地改动时，先让用户确认（§3.1） ------------------ */
+
+describe('F2 覆盖前必须确认，不静默丢弃', () => {
+  function setup() {
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const applied: AppData[] = [];
+    const kv = makeKV(configured({ lastSha: 'sha0', baseUpdatedAt: T0 }));
+    const remoteDoc: RemoteDoc = {
+      schema: 1,
+      updatedAt: T2,
+      data: makeData({ records: [rec('a', '2026-11-01', 3)] }),
+    };
+    return {
+      kv,
+      remoteDoc,
+      applied,
+      getLocal: () => local,
+      setLocal: (d: AppData) => {
+        local = d;
+      },
+    };
+  }
+
+  it('远端更新会抹掉本地未推送的 8h：不覆盖、不推送，状态变成等确认', async () => {
+    const s = setup();
+    const net = scriptedFetch([contentsReply(s.remoteDoc, 'sha_remote')]);
+    const ctrl = createSyncController({
+      kv: s.kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: s.getLocal,
+      applyRemote: (d) => {
+        s.applied.push(d);
+        s.setLocal(d);
+      },
+    });
+
+    await ctrl.start();
+
+    expect(s.applied).toHaveLength(0);
+    expect(s.getLocal().records[0].hours).toBe(8); // 本地那条还在
+    expect(ctrl.status().state).toBe('conflict');
+    expect(ctrl.status().risk?.records).toBe(1);
+    expect(net.calls.filter((c) => c.method === 'PUT')).toHaveLength(0);
+  });
+
+  it('选「用云端版本」才覆盖本地，并把基线推到远端那版', async () => {
+    const s = setup();
+    const net = scriptedFetch([contentsReply(s.remoteDoc, 'sha_remote')]);
+    const ctrl = createSyncController({
+      kv: s.kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: s.getLocal,
+      applyRemote: (d) => {
+        s.applied.push(d);
+        s.setLocal(d);
+      },
+    });
+
+    await ctrl.start();
+    await ctrl.resolveConflict('remote');
+
+    expect(s.getLocal().records[0].hours).toBe(3);
+    expect(s.kv.read().baseUpdatedAt).toBe(T2);
+    expect(ctrl.status().state).toBe('synced');
+    expect(net.calls.filter((c) => c.method === 'PUT')).toHaveLength(0); // 与远端一致，不用回写
+  });
+
+  it('选「用本地版本」：带远端 sha 把本地 8h 推上去', async () => {
+    const s = setup();
+    const net = scriptedFetch([contentsReply(s.remoteDoc, 'sha_remote'), putReply('sha_new')]);
+    const ctrl = createSyncController({
+      kv: s.kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: s.getLocal,
+      applyRemote: (d) => {
+        s.applied.push(d);
+        s.setLocal(d);
+      },
+    });
+
+    await ctrl.start();
+    await ctrl.resolveConflict('local');
+
+    const puts = net.calls.filter((c) => c.method === 'PUT');
+    expect(puts).toHaveLength(1);
+    expect(pushedSha(puts[0])).toBe('sha_remote');
+    expect(pushedDoc(puts[0]).data.records[0].hours).toBe(8);
+    expect(s.getLocal().records[0].hours).toBe(8);
+    expect(ctrl.status().state).toBe('synced');
+  });
+});
+
+/* ------------------------------ R3：请求超时 ------------------------------ */
+
+describe('R3 请求带超时，弱网不会把同步卡死', () => {
+  it('每个 fetch 都拿到 AbortSignal', async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const impl: FetchLike = async (_url, init) => {
+      signals.push(init.signal);
+      return { ok: false, status: 404, text: async () => '', json: async () => ({}) };
+    };
+    const ctrl = createSyncController({
+      kv: makeKV(configured()),
+      fetchImpl: impl,
+      now: () => T1,
+      getData: () => makeData(),
+      applyRemote: () => undefined,
+      setTimer: () => 0,
+      clearTimer: () => undefined,
+    });
+
+    await ctrl.start();
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it('请求悬挂时按「超时」失败，syncNow 仍会返回', async () => {
+    const impl: FetchLike = async (_url, init) =>
+      await new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    const ctrl = createSyncController({
+      kv: makeKV(configured()),
+      fetchImpl: impl,
+      timeoutMs: 20,
+      now: () => T1,
+      getData: () => makeData(),
+      applyRemote: () => undefined,
+      setTimer: () => 0,
+      clearTimer: () => undefined,
+    });
+
+    await ctrl.syncNow();
+
+    expect(ctrl.status().state).toBe('unsynced');
+    expect(ctrl.status().message).toContain('超时');
+  });
+});
+
+/* --------------------------- R4：失败后指数退避重试 --------------------------- */
+
+describe('R4 失败后按 30s 起退避重试', () => {
+  it('连续失败 30s → 60s，成功后不再排期', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const net = scriptedFetch([
+      { status: 404, body: {} },
+      { throws: true },
+      { status: 404, body: {} },
+      { throws: true },
+      { status: 404, body: {} },
+      putReply('shaOK'),
+    ]);
+    const ctrl = createSyncController({
+      kv: makeKV(configured()),
+      fetchImpl: net.impl,
+      now: () => T1,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+      setTimer: (fn, ms) => {
+        timers.push({ fn, ms });
+        return timers.length - 1;
+      },
+      clearTimer: () => undefined,
+    });
+
+    await ctrl.start();
+    expect(timers.at(-1)?.ms).toBe(30000);
+
+    timers.at(-1)?.fn();
+    await tick();
+    await tick();
+    await tick();
+    await tick();
+    expect(timers.at(-1)?.ms).toBe(60000);
+
+    timers.at(-1)?.fn();
+    await tick();
+    await tick();
+    await tick();
+    await tick();
+    expect(ctrl.status().state).toBe('synced');
+    expect(timers.filter((t) => t.ms >= 30000)).toHaveLength(2);
+  });
+});
+
+/* ------------- 409 撞车路径同样不能静默覆盖（复核缺陷 1 的回归） ------------- */
+
+describe('F2 的 409 路径', () => {
+  it('撞 sha 后重新拉到的远端会抹掉本地 9h：停下来等确认，不推也不覆盖', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const kv = makeKV(configured({ lastSha: 'sha1', baseUpdatedAt: T1 }));
+    const remoteV1: RemoteDoc = { schema: 1, updatedAt: T1, data: makeData({ records: [rec('a', '2026-11-01', 8)] }) };
+    const remoteV2: RemoteDoc = { schema: 1, updatedAt: T2, data: makeData({ records: [rec('a', '2026-11-01', 3)] }) };
+    const net = scriptedFetch([
+      contentsReply(remoteV1, 'sha1'),
+      { status: 409, body: {} },
+      contentsReply(remoteV2, 'sha2'),
+    ]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start(); // 与远端一致，不动
+
+    local = makeData({ records: [rec('a', '2026-11-01', 9)] });
+    ctrl.schedule(local);
+    await ctrl.flush(); // PUT 撞 409 → 重新拉到 v2（3h）
+
+    expect(ctrl.status().state).toBe('conflict');
+    expect(local.records[0].hours).toBe(9); // 本地那次改动没被抹掉
+    expect(net.calls.filter((c) => c.method === 'PUT')).toHaveLength(1); // 只有撞车那一次
+  });
+
+  it('选云端时另一侧独有的记录保留（a 冲突取云端，b 新增，c 只在本机）', async () => {
+    let local = makeData({
+      records: [rec('a', '2026-11-01', 8), rec('c', '2026-11-03', 5)],
+    });
+    const kv = makeKV(configured({ lastSha: 'sha0', baseUpdatedAt: T0 }));
+    const remoteDoc: RemoteDoc = {
+      schema: 1,
+      updatedAt: T2,
+      data: makeData({ records: [rec('a', '2026-11-01', 3), rec('b', '2026-11-02', 6)] }),
+    };
+    const net = scriptedFetch([contentsReply(remoteDoc, 'sha_remote'), putReply('sha_new')]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start();
+    expect(ctrl.status().state).toBe('conflict');
+
+    await ctrl.resolveConflict('remote');
+
+    expect(local.records.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(local.records.find((r) => r.id === 'a')?.hours).toBe(3);
+    expect(local.records.find((r) => r.id === 'c')?.hours).toBe(5);
+    expect(ctrl.status().state).toBe('synced');
+  });
+});

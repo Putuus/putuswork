@@ -27,6 +27,7 @@ export function SettingsPage() {
     resetSyncConfig,
     syncNow,
     syncTest,
+    resolveSyncConflict,
   } = useStore();
   const { settings } = data;
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -45,7 +46,20 @@ export function SettingsPage() {
             (syncStatus.at ? ' · ' + new Date(syncStatus.at).toLocaleTimeString('zh-CN', { hour12: false }) : '')
           : syncStatus.state === 'unsynced'
             ? '未同步：' + syncStatus.message
-            : '等待同步';
+            : syncStatus.state === 'conflict'
+              ? '云端有更新，等你选保留哪边'
+              : '等待同步';
+
+  const risk = syncStatus.state === 'conflict' ? syncStatus.risk : null;
+  const riskText = risk
+    ? [
+        risk.records > 0 ? risk.records + ' 条工时' : '',
+        risk.meals > 0 ? risk.meals + ' 天餐补' : '',
+        risk.settings ? '计价设置' : '',
+      ]
+        .filter(Boolean)
+        .join('、')
+    : '';
 
   const onSyncTest = async () => {
     setSyncBusy(true);
@@ -57,6 +71,12 @@ export function SettingsPage() {
   const onSyncNow = async () => {
     setSyncBusy(true);
     await syncNow();
+    setSyncBusy(false);
+  };
+
+  const onResolveSync = async (choice: 'remote' | 'local') => {
+    setSyncBusy(true);
+    await resolveSyncConflict(choice);
     setSyncBusy(false);
   };
 
@@ -321,6 +341,35 @@ export function SettingsPage() {
               </button>
             </div>
           </div>
+
+          {risk && (
+            <div className="row">
+              <div className="row__label">
+                <strong>云端和本地都有改动，需要你选一边</strong>
+                <div className="tiny muted">
+                  合并会覆盖本地 {riskText || '部分数据'}；选本地则用本地这份把云端覆盖掉。另一侧独有的记录都会保留。
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn--glass btn--sm"
+                  disabled={syncBusy}
+                  onClick={() => void onResolveSync('remote')}
+                >
+                  用云端版本
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--clay btn--sm"
+                  disabled={syncBusy}
+                  onClick={() => void onResolveSync('local')}
+                >
+                  用本地版本
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="settings-grid">
             <Field label="访问令牌（PAT）" hint="只存在这台设备的浏览器里；fine-grained token 只需给它 Contents 读写">

@@ -27,6 +27,7 @@ import {
   type FSFileHandle,
 } from './lib/storage';
 import { clampMeal } from './lib/calc';
+import { runStartup } from './lib/startup';
 import {
   createSyncController,
   defaultSyncConfig,
@@ -79,6 +80,8 @@ interface StoreValue {
   resetSyncConfig: () => void;
   syncNow: () => Promise<void>;
   syncTest: () => Promise<{ ok: boolean; message: string }>;
+  /** 有覆盖风险时用户拍板：'remote' 用云端覆盖本地，'local' 用本地覆盖云端 */
+  resolveSyncConflict: (choice: 'remote' | 'local') => Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -133,50 +136,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [toast]);
 
-  // 一次性预置历史数据：seed.json 的版本号比本地新才导入，导过的不会重复
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await fetch(import.meta.env.BASE_URL + 'seed.json', { cache: 'no-store' });
-        if (!res.ok) return;
-        const seed = (await res.json()) as { seedVersion?: number; data?: AppData };
-        if (!alive || !seed || !seed.data) return;
-        const version = Number(seed.seedVersion || 1);
-        let applied = 0;
-        try {
-          applied = Number(localStorage.getItem('worklog:seed') || '0');
-        } catch {
-          applied = 0;
-        }
-        if (applied >= version) return;
-        const incoming = seed.data;
-        setData((prev) => {
-          const merged = mergeInto(prev, incoming);
-          return Object.assign({}, merged.data, {
-            settings: Object.assign({}, merged.data.settings, {
-              hourlyRate:
-                incoming.settings && incoming.settings.hourlyRate
-                  ? incoming.settings.hourlyRate
-                  : merged.data.settings.hourlyRate,
-            }),
-          });
-        });
-        try {
-          localStorage.setItem('worklog:seed', String(version));
-        } catch {
-          /* 忽略 */
-        }
-        toast('已自动导入历史工时 ' + ((incoming.records && incoming.records.length) || 0) + ' 条');
-      } catch {
-        /* 没有 seed.json 就静默跳过 */
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [toast]);
-
   // 本地文件：改动后自动落盘
   useEffect(() => {
     if (!fileHandle || !fileLinked) return;
@@ -215,7 +174,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onNotice: (text, kind) => toast(text, kind),
     });
     syncRef.current = ctrl;
-    void ctrl.start();
+    // 整页启动：seed 预置（仅 DEV）+ 云同步。抽到 runStartup 里是为了能在装配层测
+    // 「未配置 PAT 时零网络请求」（项目没有 jsdom，跑不了真实挂载）
+    void runStartup({
+      dev: import.meta.env.DEV,
+      seedUrl: import.meta.env.BASE_URL + 'seed.json',
+      fetchSeed: (url) => fetch(url, { cache: 'no-store' }),
+      readSeedVersion: () => {
+        try {
+          return Number(localStorage.getItem('worklog:seed') || '0');
+        } catch {
+          return 0;
+        }
+      },
+      writeSeedVersion: (version) => {
+        try {
+          localStorage.setItem('worklog:seed', String(version));
+        } catch {
+          /* 忽略 */
+        }
+      },
+      importSeed: (incoming) => {
+        setData((prev) => {
+          const merged = mergeInto(prev, incoming);
+          return Object.assign({}, merged.data, {
+            settings: Object.assign({}, merged.data.settings, {
+              hourlyRate:
+                incoming.settings && incoming.settings.hourlyRate
+                  ? incoming.settings.hourlyRate
+                  : merged.data.settings.hourlyRate,
+            }),
+          });
+        });
+      },
+      notify: (text) => toast(text),
+      startSync: () => ctrl.start(),
+    });
 
     // 关页面 / 切后台 / 锁屏：立刻推，别等那 8 秒防抖。
     // keepalive 让请求在页面销毁后仍能发完（否则手机上一关页就白推）
@@ -392,6 +386,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (moved) {
         next.lastSha = null;
         next.baseUpdatedAt = null;
+        // 旧仓库的冲突快照不能拿来合新仓库
+        syncRef.current?.dropConflict();
       }
       saveSyncConfig(next);
       setSyncConfig(next);
@@ -402,6 +398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const resetSyncConfig = useCallback(() => {
+    syncRef.current?.dropConflict();
     const next = defaultSyncConfig();
     saveSyncConfig(next);
     setSyncConfig(next);
@@ -410,6 +407,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const syncNow = useCallback(async () => {
     await syncRef.current?.syncNow();
+  }, []);
+
+  const resolveSyncConflict = useCallback(async (choice: 'remote' | 'local') => {
+    await syncRef.current?.resolveConflict(choice);
   }, []);
 
   const syncTest = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
@@ -483,6 +484,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       resetSyncConfig,
       syncNow,
       syncTest,
+      resolveSyncConflict,
     }),
     [
       data,
@@ -512,6 +514,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       resetSyncConfig,
       syncNow,
       syncTest,
+      resolveSyncConflict,
     ]
   );
 

@@ -17,6 +17,11 @@ export const SYNC_KEY = 'worklog:sync';
 export const SYNC_DEBOUNCE_MS = 8000;
 /** 远端文件结构版本，目前只认 1 */
 export const SYNC_SCHEMA = 1;
+/** 单次请求超时：弱网下别把队列吊死（R3） */
+export const SYNC_TIMEOUT_MS = 15000;
+/** 失败后指数退避重试：30s 起，封顶 5 分钟（R4） */
+export const RETRY_BASE_MS = 30000;
+export const RETRY_MAX_MS = 300000;
 const API_BASE = 'https://api.github.com';
 
 /* ---------------------------------- 类型 ---------------------------------- */
@@ -46,13 +51,25 @@ export interface RemoteDoc {
   data: AppData;
 }
 
-export type SyncState = 'off' | 'idle' | 'syncing' | 'synced' | 'unsynced';
+export type SyncState = 'off' | 'idle' | 'syncing' | 'synced' | 'unsynced' | 'conflict';
+
+/** 合并会抹掉哪些本地改动（有值时不算「同步成功」，要用户拍板） */
+export interface OverwriteRisk {
+  /** 同 id 但内容不同、本地版本会被远端覆盖的条数 */
+  records: number;
+  /** 同一天餐补不同、本地会被远端覆盖的天数 */
+  meals: number;
+  /** settings 整份会被远端覆盖 */
+  settings: boolean;
+}
 
 export interface SyncStatus {
   state: SyncState;
   /** 最近一次成功/失败的时间戳（ms） */
   at: number | null;
   message: string;
+  /** state === 'conflict' 时带上风险摘要 */
+  risk?: OverwriteRisk | null;
 }
 
 export type SyncErrorCode = 'disabled' | 'auth' | 'notfound' | 'conflict' | 'http' | 'bad-data' | 'network';
@@ -222,6 +239,51 @@ export function mergeWorklog(local: AppData, remote: RemoteDoc, localUpdatedAt: 
   };
 }
 
+function sameRecord(a: WorkRecord, b: WorkRecord): boolean {
+  return a.date === b.date && a.hours === b.hours && a.rate === b.rate && a.note === b.note;
+}
+
+/**
+ * 合并 + 风险摘要（纯函数）。
+ * risk 只统计「本地版本会被远端覆盖」的部分 —— 那才是用户会感知到的丢数据。
+ * 首次同步（localUpdatedAt 为空）时远端整份赢 settings 是既定行为，不算覆盖用户改动。
+ */
+export function planMerge(
+  local: AppData,
+  remote: RemoteDoc,
+  localUpdatedAt: string | null = ''
+): { merged: AppData; risk: OverwriteRisk } {
+  const merged = mergeWorklog(local, remote, localUpdatedAt);
+  const risk: OverwriteRisk = { records: 0, meals: 0, settings: false };
+  if (isNewer(remote.updatedAt, localUpdatedAt)) {
+    const theirs = new Map(remote.data.records.map((r) => [r.id, r]));
+    for (const mine of local.records) {
+      const other = theirs.get(mine.id);
+      if (other && !sameRecord(mine, other)) risk.records++;
+    }
+    for (const day of Object.keys(local.meals)) {
+      const other = remote.data.meals[day];
+      if (other !== undefined && other !== local.meals[day]) risk.meals++;
+    }
+    if (localUpdatedAt) {
+      risk.settings = JSON.stringify(remote.data.settings) !== JSON.stringify(local.settings);
+    }
+  }
+  return { merged, risk };
+}
+
+export function hasRisk(risk: OverwriteRisk): boolean {
+  return risk.records > 0 || risk.meals > 0 || risk.settings;
+}
+
+function conflictMessage(risk: OverwriteRisk): string {
+  const parts: string[] = [];
+  if (risk.records > 0) parts.push(risk.records + ' 条工时');
+  if (risk.meals > 0) parts.push(risk.meals + ' 天餐补');
+  if (risk.settings) parts.push('计价设置');
+  return '云端有新版本，合并会覆盖本地 ' + parts.join('、') + '，等你选保留哪边';
+}
+
 /* --------------------------------- 传输层 -------------------------------- */
 
 export interface HttpResponseLike {
@@ -233,7 +295,13 @@ export interface HttpResponseLike {
 
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body?: string; keepalive?: boolean }
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body?: string;
+    keepalive?: boolean;
+    signal?: AbortSignal;
+  }
 ) => Promise<HttpResponseLike>;
 
 export type PullResult = { missing: true } | { missing: false; sha: string; doc: RemoteDoc; text: string };
@@ -242,6 +310,15 @@ export interface GitHubTransport {
   pull(): Promise<PullResult>;
   push(doc: RemoteDoc, sha: string | null, keepalive?: boolean): Promise<{ sha: string }>;
   probe(): Promise<{ fileExists: boolean; sha: string | null; updatedAt: string | null }>;
+}
+
+/** AbortSignal.timeout 在旧内核里可能没有，拿不到就退化成「不带超时」 */
+function makeTimeoutSignal(ms: number): AbortSignal | undefined {
+  try {
+    return AbortSignal.timeout(ms);
+  } catch {
+    return undefined;
+  }
 }
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -274,9 +351,10 @@ function statusError(status: number, op: 'read' | 'write'): SyncError {
  */
 export function createGitHubTransport(
   cfg: SyncConfig,
-  opts: { fetchImpl?: FetchLike; baseUrl?: string } = {}
+  opts: { fetchImpl?: FetchLike; baseUrl?: string; timeoutMs?: number } = {}
 ): GitHubTransport {
   const baseUrl = opts.baseUrl || API_BASE;
+  const timeoutMs = opts.timeoutMs ?? SYNC_TIMEOUT_MS;
   const doFetch: FetchLike = opts.fetchImpl || ((url, init) => fetch(url, init));
   const contentsUrl = baseUrl + '/repos/' + encodeURIComponent(cfg.owner) + '/' + encodeURIComponent(cfg.repo) + '/contents/' + encodePath(cfg.path);
 
@@ -295,8 +373,12 @@ export function createGitHubTransport(
     init: { method: string; headers: Record<string, string>; body?: string; keepalive?: boolean }
   ): Promise<HttpResponseLike> => {
     try {
-      return await doFetch(url, init);
-    } catch {
+      // 每次请求都挂超时：弱网下不能让请求永久悬挂把串行队列吊死（R3）
+      return await doFetch(url, { ...init, signal: makeTimeoutSignal(timeoutMs) });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new SyncError('network', '请求超时（' + Math.round(timeoutMs / 1000) + ' 秒没响应），稍后会自动重试');
+      }
       // 断网 / DNS 失败 / CORS：统一当「网络不通」，稍后自动重试
       throw new SyncError('network', '网络不通，稍后会自动重试');
     }
@@ -384,6 +466,8 @@ export interface SyncControllerDeps {
   /** 返回 ISO 时间串，测试可固定 */
   now?: () => string;
   debounceMs?: number;
+  /** 单次请求超时（毫秒），默认 15 秒；测试可调小 */
+  timeoutMs?: number;
   setTimer?: (fn: () => void, ms: number) => TimerHandle;
   clearTimer?: (handle: TimerHandle) => void;
   /** 读当前本地数据（始终读最新，不要闭包快照） */
@@ -404,6 +488,12 @@ export interface SyncController {
   flush(opts?: { keepalive?: boolean }): Promise<void>;
   /** 「立即同步」：拉一次 + 把当前数据推上去 */
   syncNow(): Promise<void>;
+  /** 有覆盖风险、等用户选边时返回风险摘要，否则 null */
+  conflict(): OverwriteRisk | null;
+  /** 用户拍板：'remote' 用云端覆盖本地；'local' 用本地覆盖云端（都只影响冲突的那部分） */
+  resolveConflict(choice: 'remote' | 'local'): Promise<void>;
+  /** 换仓库 / 断开同步时丢掉内存里的冲突快照，避免拿旧仓库的数据去合新仓库 */
+  dropConflict(): void;
   testConnection(): Promise<{ ok: boolean; message: string }>;
   status(): SyncStatus;
   stop(): void;
@@ -418,7 +508,15 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   const kv = deps.kv === undefined ? defaultKV() : deps.kv;
   const now = deps.now || (() => new Date().toISOString());
   const debounceMs = deps.debounceMs ?? SYNC_DEBOUNCE_MS;
-  const setTimer = deps.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const setTimer =
+    deps.setTimer ||
+    ((fn, ms) => {
+      const t = setTimeout(fn, ms);
+      // Node（vitest）里别让退避定时器拖住进程退出；浏览器里 setTimeout 返回数字，这里会跳过
+      const maybe = t as unknown as { unref?: () => void };
+      if (typeof maybe.unref === 'function') maybe.unref();
+      return t;
+    });
   const clearTimer = deps.clearTimer || ((h) => clearTimeout(h as Parameters<typeof clearTimeout>[0]));
 
   let active = true;
@@ -429,17 +527,31 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
    */
   let knownJson: string = JSON.stringify(deps.getData());
   let pending: { json: string; data: AppData } | null = null;
+  /** 云端此刻的内容（最后一次成功拉/推的 JSON），用来挡掉「内容没变还推」的重复 commit */
+  let syncedJson: string | null = null;
   let lastFailKey = '';
   let status: SyncStatus = { state: 'off', at: null, message: '未开启云同步' };
   let chain: Promise<unknown> = Promise.resolve();
+  /** 有覆盖风险时挂在这里，等用户选完再动数据 */
+  let conflict: { local: AppData; remote: RemoteDoc; merged: AppData; risk: OverwriteRisk; sha: string } | null = null;
+  let retryTimer: TimerHandle | null = null;
+  let failCount = 0;
 
-  const emit = (state: SyncState, message: string): void => {
+  const emit = (state: SyncState, message: string, risk: OverwriteRisk | null = null): void => {
     if (!active) return;
     // off / syncing 这类「过程态」重复广播没意义（关着同步时每次按键都会走到这里）
     if ((state === 'off' || state === 'syncing') && status.state === state && status.message === message) return;
     const at = state === 'synced' || state === 'unsynced' ? Date.now() : status.at;
-    status = { state, at, message };
+    status = { state, at, message, risk };
     deps.onStatus && deps.onStatus(status);
+  };
+
+  /** 成功：清失败计数与退避定时器 */
+  const succeed = (message: string): void => {
+    failCount = 0;
+    clearRetry();
+    lastFailKey = '';
+    emit('synced', message);
   };
 
   const notice = (text: string, kind: 'ok' | 'warn', key: string): void => {
@@ -486,9 +598,39 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }, debounceMs);
   };
 
+  function clearRetry(): void {
+    if (retryTimer !== null) {
+      clearTimer(retryTimer);
+      retryTimer = null;
+    }
+  }
+
+  /** 失败后指数退避：30s → 60s → 120s … 封顶 5 分钟（R4，网络自己恢复也能补上） */
+  function armRetry(): void {
+    clearRetry();
+    if (!active) return;
+    const delay = Math.min(RETRY_BASE_MS * Math.pow(2, Math.max(0, failCount - 1)), RETRY_MAX_MS);
+    retryTimer = setTimer(() => {
+      retryTimer = null;
+      void retryNow();
+    }, delay);
+  }
+
+  async function retryNow(): Promise<void> {
+    if (!active || conflict) return;
+    try {
+      // pullOnce 里已经包含「本地有远端没有 → 补推」，不用再 flush（否则一次重试算两次失败）
+      await enqueue(pullOnce);
+    } catch (err) {
+      fail(toSyncError(err), null);
+    }
+  }
+
   const fail = (err: SyncError, job: { json: string; data: AppData } | null): void => {
     // 失败：这次变更留在待推里，下次 flush / 打开页面继续补推
     if (job && !pending) pending = job;
+    failCount++;
+    armRetry();
     emit('unsynced', err.message);
     notice('云同步失败：' + err.message, 'warn', err.code + ':' + String(err.status || ''));
   };
@@ -497,8 +639,9 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
    * 推送一次；409/422 冲突时重新拉 → 合并 → 只重试一次。
    * 不传 data 就推「当前本地」：防抖排期到真正发出之间用户可能又记了东西。
    */
-  async function push(override?: AppData, keepalive = false): Promise<void> {
+  async function push(override?: AppData, keepalive = false, preferLocal = false): Promise<void> {
     if (!active) return;
+    if (conflict) return; // 等用户选边，谁也别抢跑
     const data = override || deps.getData();
     const cfg = readCfg();
     if (!isSyncConfigured(cfg)) {
@@ -506,15 +649,19 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       return;
     }
     const baseUpdatedAt = cfg.baseUpdatedAt;
-    const transport = createGitHubTransport(cfg, { fetchImpl: deps.fetchImpl, baseUrl: deps.baseUrl });
+    const transport = createGitHubTransport(cfg, {
+      fetchImpl: deps.fetchImpl,
+      baseUrl: deps.baseUrl,
+      timeoutMs: deps.timeoutMs,
+    });
     const doc = buildRemoteDoc(data, now());
 
     try {
       const res = await transport.push(doc, cfg.lastSha, keepalive);
       patchMeta({ lastSha: res.sha, baseUpdatedAt: doc.updatedAt });
       knownJson = JSON.stringify(data);
-      lastFailKey = '';
-      emit('synced', '已同步');
+      syncedJson = knownJson;
+      succeed('已同步');
       return;
     } catch (err) {
       const e = toSyncError(err);
@@ -535,11 +682,24 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         const res = await transport.push(retryDoc, null, keepalive);
         patchMeta({ lastSha: res.sha, baseUpdatedAt: retryDoc.updatedAt });
         knownJson = JSON.stringify(current);
-        lastFailKey = '';
-        emit('synced', '已同步');
+        syncedJson = knownJson;
+        succeed('已同步');
         return;
       }
-      const merged = mergeWorklog(current, fresh.doc, baseUpdatedAt);
+      if (!preferLocal) {
+        // 409 这条路也能静默覆盖本地（跨设备时比启动拉取更常见）：
+        // 重新拉到的远端如果会抹掉本地改动，同样停下来等用户选
+        const retryPlan = planMerge(current, fresh.doc, baseUpdatedAt);
+        const retryMergedJson = JSON.stringify(retryPlan.merged);
+        if (hasRisk(retryPlan.risk) && retryMergedJson !== JSON.stringify(current)) {
+          conflict = { local: current, remote: fresh.doc, merged: retryPlan.merged, risk: retryPlan.risk, sha: fresh.sha };
+          emit('conflict', conflictMessage(retryPlan.risk), retryPlan.risk);
+          notice('云端有更新版本，已暂停同步等你确认', 'warn', 'conflict:' + fresh.sha);
+          return;
+        }
+      }
+      // preferLocal：用户在「用本地版本」拍过板，冲突重试时也别让远端再赢一次
+      const merged = mergeWorklog(current, fresh.doc, preferLocal ? fresh.doc.updatedAt : baseUpdatedAt);
       const retryDoc = buildRemoteDoc(merged, now());
       const res = await transport.push(retryDoc, fresh.sha, keepalive);
       patchMeta({ lastSha: res.sha, baseUpdatedAt: retryDoc.updatedAt });
@@ -555,8 +715,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         );
         deps.applyRemote(after);
       }
-      lastFailKey = '';
-      emit('synced', '已与云端合并后同步');
+      succeed('已与云端合并后同步');
       notice('云端数据更新过，已合并两边记录', 'ok', '');
     } catch (err) {
       const latest = deps.getData();
@@ -566,6 +725,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
   async function flushNow(keepalive = false): Promise<void> {
     if (!active) return;
+    if (conflict) return; // 等用户选边，别拿本地覆盖云端
     clear();
     const job = pending;
     pending = null;
@@ -573,6 +733,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     const cfg = readCfg();
     if (!isSyncConfigured(cfg)) {
       emit('off', '未开启云同步');
+      return;
+    }
+    if (syncedJson !== null && JSON.stringify(deps.getData()) === syncedJson) {
+      // 云端已经是这份内容（比如刚在冲突裁决里推过），别再产生一个空 commit
+      succeed('已同步');
       return;
     }
     await enqueue(() => push(undefined, keepalive));
@@ -585,7 +750,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       emit('off', '未开启云同步');
       return;
     }
-    const transport = createGitHubTransport(cfg, { fetchImpl: deps.fetchImpl, baseUrl: deps.baseUrl });
+    const transport = createGitHubTransport(cfg, {
+      fetchImpl: deps.fetchImpl,
+      baseUrl: deps.baseUrl,
+      timeoutMs: deps.timeoutMs,
+    });
     emit('syncing', '正在读取云端…');
     const res = await transport.pull();
 
@@ -600,10 +769,21 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }
 
     const local = deps.getData();
-    const merged = mergeWorklog(local, res.doc, cfg.baseUpdatedAt);
+    const plan = planMerge(local, res.doc, cfg.baseUpdatedAt);
+    const merged = plan.merged;
     const mergedJson = JSON.stringify(merged);
     const remoteJson = JSON.stringify(res.doc.data);
     const localJson = JSON.stringify(local);
+
+    if (hasRisk(plan.risk) && mergedJson !== localJson) {
+      // §3.1「若远端版本比本地基线新，先提示再覆盖，不静默丢弃」：
+      // 这里既不写回也不推送，lastSha 也不动 —— 下次打开会重新识别同一个冲突
+      conflict = { local, remote: res.doc, merged, risk: plan.risk, sha: res.sha };
+      emit('conflict', conflictMessage(plan.risk), plan.risk);
+      // toast 只是提示一眼，真正拦住覆盖的是上面这个常驻状态（toast 2.6 秒就没了）
+      notice('云端有更新版本，已暂停同步等你确认', 'warn', 'conflict:' + res.sha);
+      return;
+    }
 
     patchMeta({ lastSha: res.sha, baseUpdatedAt: res.doc.updatedAt || cfg.baseUpdatedAt });
     knownJson = mergedJson;
@@ -624,7 +804,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       // 推成功就清掉；万一期间又来了新改动（pending 已被替换），保留新的
       if (pending === job) pending = null;
     } else {
-      emit('synced', '已同步');
+      syncedJson = remoteJson; // 云端就是最新，本地也一致，没有可推的
+      succeed('已同步');
     }
   }
 
@@ -652,6 +833,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         emit('off', '未开启云同步');
         return;
       }
+      if (conflict) return; // 冲突未决期间只记本地，不推
       if (json === knownJson) return;
       pending = { json, data };
       armTimer();
@@ -667,6 +849,10 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     },
 
     async syncNow(): Promise<void> {
+      if (conflict) {
+        emit('conflict', conflictMessage(conflict.risk), conflict.risk);
+        return;
+      }
       const cfg = readCfg();
       if (!isSyncConfigured(cfg)) {
         emit('off', '未开启云同步');
@@ -682,10 +868,59 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       }
     },
 
+    conflict(): OverwriteRisk | null {
+      return conflict ? conflict.risk : null;
+    },
+
+    dropConflict(): void {
+      if (!conflict) return;
+      conflict = null;
+      if (status.state === 'conflict') emit('idle', '等待同步');
+    },
+
+    async resolveConflict(choice: 'remote' | 'local'): Promise<void> {
+      const c = conflict;
+      if (!c) return;
+      conflict = null;
+      const cfg = readCfg();
+      if (!isSyncConfigured(cfg)) {
+        emit('off', '未开启云同步');
+        return;
+      }
+      try {
+        const current = deps.getData();
+        // remote：基线给空 → 远端赢；local：基线给远端那版 → 本地赢。
+        // 两边都只影响「同一条记录/同一天」的冲突，只在一侧存在的记录一律保留。
+        const target = mergeWorklog(current, c.remote, choice === 'remote' ? '' : c.remote.updatedAt);
+        const targetJson = JSON.stringify(target);
+        const remoteJson = JSON.stringify(c.remote.data);
+        pending = null;
+        if (JSON.stringify(current) !== targetJson) deps.applyRemote(target);
+        if (targetJson === remoteJson) {
+          // 选云端且合并结果就等于远端：不用回写
+          knownJson = remoteJson;
+          syncedJson = remoteJson;
+          patchMeta({ lastSha: c.sha, baseUpdatedAt: c.remote.updatedAt });
+          succeed('已采用云端版本');
+          return;
+        }
+        knownJson = remoteJson; // 云端还是旧内容，推成功后 push 会更新
+        // 先认下刚看到的远端版本，推的时候带上它的 sha，避免拿过期 sha 白撞一次 409
+        patchMeta({ lastSha: c.sha, baseUpdatedAt: c.remote.updatedAt });
+        await enqueue(() => push(target, false, choice === 'local'));
+      } catch (err) {
+        fail(toSyncError(err), null);
+      }
+    },
+
     async testConnection(): Promise<{ ok: boolean; message: string }> {
       const cfg = readCfg();
       if (!isSyncConfigured(cfg)) return { ok: false, message: '先填 PAT、owner 和 repo' };
-      const transport = createGitHubTransport(cfg, { fetchImpl: deps.fetchImpl, baseUrl: deps.baseUrl });
+      const transport = createGitHubTransport(cfg, {
+        fetchImpl: deps.fetchImpl,
+        baseUrl: deps.baseUrl,
+        timeoutMs: deps.timeoutMs,
+      });
       try {
         const probe = await transport.probe();
         if (!probe.fileExists) {
@@ -703,6 +938,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     stop(): void {
       active = false;
       clear();
+      clearRetry();
+      conflict = null;
     },
   };
 }
