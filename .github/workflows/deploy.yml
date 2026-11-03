@@ -19,10 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # 首次运行自动打开 Pages（Source=GitHub Actions），省掉手动点设置
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: pnpm/action-setup@v4
         with:
           version: 9
