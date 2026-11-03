@@ -4,15 +4,61 @@ import { useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../store';
 import { NumberField, Seg, Switch, Field } from './ui';
 import { backupKeys, downloadJSON, parseImport, readFileAsText, fsSupported } from '../lib/storage';
+import { isSyncConfigured } from '../lib/sync';
 import { MEAL_MAX } from '../types';
 
 export function SettingsPage() {
-  const { data, setSettings, replaceAll, mergeAll, resetAll, restoreLastBackup, toast, fileHandle, fileName, fileLinked, linkFile, unlinkFile } =
-    useStore();
+  const {
+    data,
+    setSettings,
+    replaceAll,
+    mergeAll,
+    resetAll,
+    restoreLastBackup,
+    toast,
+    fileHandle,
+    fileName,
+    fileLinked,
+    linkFile,
+    unlinkFile,
+    syncConfig,
+    syncStatus,
+    updateSyncConfig,
+    resetSyncConfig,
+    syncNow,
+    syncTest,
+  } = useStore();
   const { settings } = data;
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
+  const [syncBusy, setSyncBusy] = useState(false);
+
+  const syncReady = isSyncConfigured(syncConfig);
+  const syncLabel =
+    syncStatus.state === 'off'
+      ? '未开启，数据只在本机'
+      : syncStatus.state === 'syncing'
+        ? '同步中…'
+        : syncStatus.state === 'synced'
+          ? '已同步' +
+            (syncStatus.at ? ' · ' + new Date(syncStatus.at).toLocaleTimeString('zh-CN', { hour12: false }) : '')
+          : syncStatus.state === 'unsynced'
+            ? '未同步：' + syncStatus.message
+            : '等待同步';
+
+  const onSyncTest = async () => {
+    setSyncBusy(true);
+    const res = await syncTest();
+    setSyncBusy(false);
+    toast(res.message, res.ok ? 'ok' : 'warn');
+  };
+
+  const onSyncNow = async () => {
+    setSyncBusy(true);
+    await syncNow();
+    setSyncBusy(false);
+  };
 
   const onImport = async (file: File | undefined, mode: 'merge' | 'replace') => {
     if (!file) return;
@@ -241,6 +287,111 @@ export function SettingsPage() {
               }}
             >
               {confirmReset ? '真的要清空？' : '清空数据'}
+            </button>
+          </div>
+        </section>
+
+        <section className="glass card" data-reveal>
+          <div className="section-title">
+            <span className="h2">云同步</span>
+            <span className="tiny dim">副本存进你自己的 GitHub 私有仓库；不填令牌就完全是本地应用</span>
+          </div>
+
+          <div className="row">
+            <div className="row__label">
+              <strong>当前状态</strong>
+              <div className="tiny muted">{syncLabel}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn--glass btn--sm"
+                disabled={!syncReady || syncBusy}
+                onClick={() => void onSyncTest()}
+              >
+                测试连接
+              </button>
+              <button
+                type="button"
+                className="btn btn--clay btn--sm"
+                disabled={!syncReady || syncBusy}
+                onClick={() => void onSyncNow()}
+              >
+                立即同步
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-grid">
+            <Field label="访问令牌（PAT）" hint="只存在这台设备的浏览器里；fine-grained token 只需给它 Contents 读写">
+              <input
+                className="input"
+                type="password"
+                value={syncConfig.token}
+                placeholder="github_pat_..."
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="GitHub 访问令牌"
+                onChange={(e) => updateSyncConfig({ token: e.target.value })}
+              />
+            </Field>
+            <div className="field">
+              <span className="field__label">仓库 owner / repo</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="input"
+                  value={syncConfig.owner}
+                  placeholder="owner"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="仓库 owner"
+                  onChange={(e) => updateSyncConfig({ owner: e.target.value })}
+                />
+                <input
+                  className="input"
+                  value={syncConfig.repo}
+                  placeholder="repo"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="仓库名"
+                  onChange={(e) => updateSyncConfig({ repo: e.target.value })}
+                />
+              </div>
+              <span className="tiny dim">建议用私有仓库，例如 Putuus / putuswork-data</span>
+            </div>
+          </div>
+
+          <div className="row">
+            <div className="row__label">
+              <strong>仓库内文件路径</strong>
+              <div className="tiny muted">默认 worklog.json；云端还没有这个文件时，第一次同步会自动创建</div>
+            </div>
+            <input
+              className="input"
+              style={{ maxWidth: 260 }}
+              value={syncConfig.path}
+              placeholder="worklog.json"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="仓库内文件路径"
+              onChange={(e) => updateSyncConfig({ path: e.target.value })}
+            />
+          </div>
+
+          <div className="row">
+            <div className="row__label">
+              <strong>断开云同步</strong>
+              <div className="tiny muted">只清掉本机的令牌和仓库配置，云端文件与本地记录都不动</div>
+            </div>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => {
+                resetSyncConfig();
+                toast('已清除云同步配置，本地数据不变');
+              }}
+            >
+              清除配置
             </button>
           </div>
         </section>

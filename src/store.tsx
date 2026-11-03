@@ -27,6 +27,16 @@ import {
   type FSFileHandle,
 } from './lib/storage';
 import { clampMeal } from './lib/calc';
+import {
+  createSyncController,
+  defaultSyncConfig,
+  isSyncConfigured,
+  loadSyncConfig,
+  saveSyncConfig,
+  type SyncConfig,
+  type SyncController,
+  type SyncStatus,
+} from './lib/sync';
 
 export interface Toast {
   id: string;
@@ -62,6 +72,13 @@ interface StoreValue {
   fileLinked: boolean;
   linkFile: () => Promise<void>;
   unlinkFile: () => Promise<void>;
+  /** 云同步：配置、状态与手动操作（未配置时 syncNow / syncTest 不发任何请求） */
+  syncConfig: SyncConfig;
+  syncStatus: SyncStatus;
+  updateSyncConfig: (patch: Partial<Pick<SyncConfig, 'token' | 'owner' | 'repo' | 'path'>>) => void;
+  resetSyncConfig: () => void;
+  syncNow: () => Promise<void>;
+  syncTest: () => Promise<{ ok: boolean; message: string }>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -72,6 +89,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [fileHandle, setFileHandle] = useState<FSFileHandle | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileLinked, setFileLinked] = useState(false);
+  const [syncConfig, setSyncConfig] = useState<SyncConfig>(() => loadSyncConfig());
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() =>
+    isSyncConfigured(loadSyncConfig())
+      ? { state: 'idle', at: null, message: '等待同步' }
+      : { state: 'off', at: null, message: '未开启云同步' }
+  );
+  /** 同步层始终读最新的数据（不能拿渲染那一刻的闭包快照） */
+  const dataRef = useRef<AppData>(data);
+  const syncRef = useRef<SyncController | null>(null);
   const timers = useRef<number[]>([]);
 
   const toast = useCallback((text: string, kind: 'ok' | 'warn' = 'ok') => {
@@ -173,6 +199,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       timers.current.forEach((t) => window.clearTimeout(t));
     };
   }, []);
+
+  /* --------------------------------- 云同步 --------------------------------- */
+
+  // 配置了才启动；未配置时这里一个网络请求都不会发（A002 第 1 条）
+  useEffect(() => {
+    const ctrl = createSyncController({
+      getData: () => dataRef.current,
+      // 立刻同步 dataRef：React 提交前 getData() 还得拿到刚合并的结果
+      applyRemote: (next) => {
+        dataRef.current = next;
+        setData(next);
+      },
+      onStatus: (s) => setSyncStatus(s),
+      onNotice: (text, kind) => toast(text, kind),
+    });
+    syncRef.current = ctrl;
+    void ctrl.start();
+
+    // 关页面 / 切后台 / 锁屏：立刻推，别等那 8 秒防抖。
+    // keepalive 让请求在页面销毁后仍能发完（否则手机上一关页就白推）
+    const flushNow = () => {
+      void ctrl.flush({ keepalive: true });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushNow();
+    };
+    // 断网时打开页面：拉取失败、pending 为空，只 flush 等于什么都不做 → 用 syncNow 重拉
+    const retrySync = () => {
+      void ctrl.syncNow();
+    };
+    window.addEventListener('pagehide', flushNow);
+    window.addEventListener('online', retrySync);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flushNow);
+      window.removeEventListener('online', retrySync);
+      document.removeEventListener('visibilitychange', onVisibility);
+      ctrl.stop();
+      syncRef.current = null;
+    };
+  }, [toast]);
+
+  // 数据一变就交给同步层：有没有实质变化由它判断（刚被远端覆盖的不会回推）
+  useEffect(() => {
+    dataRef.current = data;
+    if (syncRef.current) syncRef.current.schedule(data);
+  }, [data]);
 
   const setSettings = useCallback((patch: Partial<Settings>) => {
     setData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, patch) }));
@@ -307,6 +380,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return true;
   }, [data]);
 
+  /** 改同步配置：owner/repo/path 换地方后，旧 sha 与基线就作废了 */
+  const updateSyncConfig = useCallback(
+    (patch: Partial<Pick<SyncConfig, 'token' | 'owner' | 'repo' | 'path'>>) => {
+      const prev = loadSyncConfig();
+      const next: SyncConfig = Object.assign({}, prev, patch);
+      const moved =
+        (patch.owner !== undefined && patch.owner !== prev.owner) ||
+        (patch.repo !== undefined && patch.repo !== prev.repo) ||
+        (patch.path !== undefined && patch.path !== prev.path);
+      if (moved) {
+        next.lastSha = null;
+        next.baseUpdatedAt = null;
+      }
+      saveSyncConfig(next);
+      setSyncConfig(next);
+      // 这里不自动发起同步：配置是逐字输入的，token 还没输完就请求只会换来一个 401。
+      // 首次上传靠设置页的「立即同步」，或者下一次改动（8 秒防抖那趟会带上全量数据）。
+    },
+    []
+  );
+
+  const resetSyncConfig = useCallback(() => {
+    const next = defaultSyncConfig();
+    saveSyncConfig(next);
+    setSyncConfig(next);
+    setSyncStatus({ state: 'off', at: null, message: '未开启云同步' });
+  }, []);
+
+  const syncNow = useCallback(async () => {
+    await syncRef.current?.syncNow();
+  }, []);
+
+  const syncTest = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    if (!syncRef.current) return { ok: false, message: '同步层还没准备好' };
+    return syncRef.current.testConnection();
+  }, []);
+
   const linkFile = useCallback(async () => {
     // 已有句柄就直接续期权限
     if (fileHandle) {
@@ -367,6 +477,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       fileLinked,
       linkFile,
       unlinkFile,
+      syncConfig,
+      syncStatus,
+      updateSyncConfig,
+      resetSyncConfig,
+      syncNow,
+      syncTest,
     }),
     [
       data,
@@ -390,6 +506,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       fileLinked,
       linkFile,
       unlinkFile,
+      syncConfig,
+      syncStatus,
+      updateSyncConfig,
+      resetSyncConfig,
+      syncNow,
+      syncTest,
     ]
   );
 
