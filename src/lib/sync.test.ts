@@ -1101,3 +1101,259 @@ describe('F2 的 409 路径', () => {
     expect(ctrl.status().state).toBe('synced');
   });
 });
+
+/* ------------------- R-A：本地自上次同步后没动过，就别问 ------------------- */
+
+describe('R-A 快照比对：假阳性冲突不该弹', () => {
+  /** 上次同步成功时的快照：记录指纹格式 date|hours|rate|note */
+  function baseOf(patch: { records?: Record<string, string>; meals?: Record<string, number>; settings?: string } = {}) {
+    return {
+      records: patch.records || {},
+      meals: patch.meals || {},
+      settings: patch.settings === undefined ? JSON.stringify(defaultSettings()) : patch.settings,
+    };
+  }
+
+  it('本地没动过、远端改了同一条：直接采用云端，不弹冲突', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const kv = makeKV(
+      configured({
+        lastSha: 'sha0',
+        baseUpdatedAt: T0,
+        base: baseOf({ records: { a: '2026-11-01|8||' } }),
+      })
+    );
+    const remoteDoc: RemoteDoc = { schema: 1, updatedAt: T2, data: makeData({ records: [rec('a', '2026-11-01', 3)] }) };
+    const net = scriptedFetch([contentsReply(remoteDoc, 'sha_remote')]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start();
+
+    expect(ctrl.status().state).toBe('synced');
+    expect(ctrl.conflict()).toBeNull();
+    expect(local.records[0].hours).toBe(3); // 采用云端
+    expect(net.calls.filter((c) => c.method === 'PUT')).toHaveLength(0);
+  });
+
+  it('本地真改过（8h→9h）又被远端改动：仍然停下来问', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 9)] });
+    const kv = makeKV(
+      configured({
+        lastSha: 'sha0',
+        baseUpdatedAt: T0,
+        base: baseOf({ records: { a: '2026-11-01|8||' } }),
+      })
+    );
+    const remoteDoc: RemoteDoc = { schema: 1, updatedAt: T2, data: makeData({ records: [rec('a', '2026-11-01', 3)] }) };
+    const net = scriptedFetch([contentsReply(remoteDoc, 'sha_remote')]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start();
+
+    expect(ctrl.status().state).toBe('conflict');
+    expect(local.records[0].hours).toBe(9);
+  });
+
+  it('本地改过、远端没改：直接把本地推上去', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 9)] });
+    const kv = makeKV(
+      configured({
+        lastSha: 'sha0',
+        baseUpdatedAt: T1,
+        base: baseOf({ records: { a: '2026-11-01|8||' } }),
+      })
+    );
+    // 远端还是 8h、版本也没比基线新
+    const remoteDoc: RemoteDoc = { schema: 1, updatedAt: T1, data: makeData({ records: [rec('a', '2026-11-01', 8)] }) };
+    const net = scriptedFetch([contentsReply(remoteDoc, 'sha1'), putReply('sha_new')]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start();
+
+    const puts = net.calls.filter((c) => c.method === 'PUT');
+    expect(puts).toHaveLength(1);
+    expect(pushedDoc(puts[0]).data.records[0].hours).toBe(9);
+    expect(ctrl.status().state).toBe('synced');
+  });
+
+  it('快照缺失或损坏：宁可按有风险处理（保守路径）', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const kv = makeKV(
+      configured({
+        lastSha: 'sha0',
+        baseUpdatedAt: T0,
+        base: baseOf({ records: {}, meals: {}, settings: '' }),
+      })
+    );
+    const remoteDoc: RemoteDoc = { schema: 1, updatedAt: T2, data: makeData({ records: [rec('a', '2026-11-01', 3)] }) };
+    const net = scriptedFetch([contentsReply(remoteDoc, 'sha_remote')]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start();
+
+    expect(ctrl.status().state).toBe('conflict');
+    expect(local.records[0].hours).toBe(8);
+  });
+});
+
+/* -------------------- 补缺口 1：conflict 期间零请求 -------------------- */
+
+describe('冲突未决期间不发任何请求', () => {
+  it('flush / syncNow / schedule / pagehide flush 都不碰网络', async () => {
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const kv = makeKV(configured({ lastSha: 'sha0', baseUpdatedAt: T0 }));
+    const remoteDoc: RemoteDoc = { schema: 1, updatedAt: T2, data: makeData({ records: [rec('a', '2026-11-01', 3)] }) };
+    const net = scriptedFetch([contentsReply(remoteDoc, 'sha_remote')]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T2,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+      setTimer: () => 0,
+      clearTimer: () => undefined,
+    });
+
+    await ctrl.start();
+    expect(ctrl.status().state).toBe('conflict');
+    const before = net.calls.length;
+
+    await ctrl.flush();
+    await ctrl.syncNow();
+    ctrl.schedule(makeData({ records: [rec('a', '2026-11-01', 7)] }));
+    await ctrl.flush({ keepalive: true });
+
+    expect(net.calls.length).toBe(before);
+    expect(ctrl.status().state).toBe('conflict');
+  });
+});
+
+/* ------------------ 补缺口 2：preferLocal 在 409 重试不被翻盘 ------------------ */
+
+describe('选「用本地版本」后，409 重试也不能翻盘', () => {
+  it('重试拉到更新的远端（T3）时仍然推本地那份', async () => {
+    const T3 = '2026-11-03T11:00:00.000Z';
+    let local = makeData({ records: [rec('a', '2026-11-01', 8)] });
+    const kv = makeKV(configured({ lastSha: 'sha0', baseUpdatedAt: T0 }));
+    const v1: RemoteDoc = { schema: 1, updatedAt: T2, data: makeData({ records: [rec('a', '2026-11-01', 3)] }) };
+    const v2: RemoteDoc = { schema: 1, updatedAt: T3, data: makeData({ records: [rec('a', '2026-11-01', 4)] }) };
+    const net = scriptedFetch([
+      contentsReply(v1, 'sha1'),
+      { status: 409, body: {} },
+      contentsReply(v2, 'sha2'),
+      putReply('sha3'),
+    ]);
+
+    const ctrl = createSyncController({
+      kv,
+      fetchImpl: net.impl,
+      now: () => T3,
+      getData: () => local,
+      applyRemote: (d) => {
+        local = d;
+      },
+    });
+
+    await ctrl.start();
+    expect(ctrl.status().state).toBe('conflict');
+
+    await ctrl.resolveConflict('local');
+
+    const puts = net.calls.filter((c) => c.method === 'PUT');
+    expect(puts).toHaveLength(2); // 首发撞 409 + 一次重试
+    expect(pushedDoc(puts[1]).data.records[0].hours).toBe(8); // 本地 8h 没被远端 4h 翻掉
+  });
+});
+
+/* ------------------------- R-D：确定性错误不退避 ------------------------- */
+
+describe('R-D 鉴权错误不做指数退避', () => {
+  function timers() {
+    const list: Array<{ fn: () => void; ms: number }> = [];
+    return {
+      list,
+      setTimer: (fn: () => void, ms: number) => {
+        list.push({ fn, ms });
+        return list.length - 1;
+      },
+      clearTimer: () => undefined,
+    };
+  }
+
+  it('401 只提示一次，不排退避重试', async () => {
+    const t = timers();
+    const net = scriptedFetch([{ status: 401, body: { message: 'Bad credentials' } }]);
+    const ctrl = createSyncController({
+      kv: makeKV(configured()),
+      fetchImpl: net.impl,
+      now: () => T1,
+      getData: () => makeData(),
+      applyRemote: () => undefined,
+      setTimer: t.setTimer,
+      clearTimer: t.clearTimer,
+    });
+
+    await ctrl.start();
+
+    expect(ctrl.status().state).toBe('unsynced');
+    expect(t.list.filter((x) => x.ms >= 30000)).toHaveLength(0);
+  });
+
+  it('网络错误仍然退避 30 秒后重试', async () => {
+    const t = timers();
+    const net = scriptedFetch([{ throws: true }]);
+    const ctrl = createSyncController({
+      kv: makeKV(configured()),
+      fetchImpl: net.impl,
+      now: () => T1,
+      getData: () => makeData(),
+      applyRemote: () => undefined,
+      setTimer: t.setTimer,
+      clearTimer: t.clearTimer,
+    });
+
+    await ctrl.start();
+
+    expect(ctrl.status().state).toBe('unsynced');
+    expect(t.list.at(-1)?.ms).toBe(30000);
+  });
+});

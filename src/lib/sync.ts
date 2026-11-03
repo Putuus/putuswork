@@ -31,6 +31,16 @@ export interface SyncKV {
   setItem(key: string, value: string): void;
 }
 
+/** 上次同步成功时的数据快照指纹（只存指纹，不存整份数据） */
+export interface SyncBase {
+  /** 记录 id → `date|hours|rate|note`，用来判断「本地这条自上次同步后有没有被改过」 */
+  records: Record<string, string>;
+  /** 日期 → 金额 */
+  meals: Record<string, number>;
+  /** JSON(settings) */
+  settings: string;
+}
+
 export interface SyncConfig {
   /** fine-grained PAT，只存在浏览器 localStorage，绝不外泄 */
   token: string;
@@ -42,6 +52,12 @@ export interface SyncConfig {
   lastSha: string | null;
   /** 上次同步时远端文档的 updatedAt，用作合并基线 */
   baseUpdatedAt: string | null;
+  /**
+   * 上次同步成功后的本地数据快照。拉取时拿它和当前 data 比：
+   * 本地没动过 → 远端版本直接采用，不该弹「用云端/用本地」；
+   * 本地真改过 → 才进冲突确认。null = 老版本升级上来或快照坏了，按「有风险」保守处理。
+   */
+  base: SyncBase | null;
 }
 
 /** 远端文件：{ schema: 1, updatedAt: ISO, data: AppData } */
@@ -89,7 +105,39 @@ export class SyncError extends Error {
 /* -------------------------------- 配置读写 -------------------------------- */
 
 export function defaultSyncConfig(): SyncConfig {
-  return { token: '', owner: '', repo: '', path: 'worklog.json', lastSha: null, baseUpdatedAt: null };
+  return { token: '', owner: '', repo: '', path: 'worklog.json', lastSha: null, baseUpdatedAt: null, base: null };
+}
+
+function normalizeBase(raw: unknown): SyncBase | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const records: Record<string, string> = {};
+  if (r.records && typeof r.records === 'object') {
+    for (const [id, v] of Object.entries(r.records as Record<string, unknown>)) {
+      if (typeof v === 'string') records[id] = v;
+    }
+  }
+  const meals: Record<string, number> = {};
+  if (r.meals && typeof r.meals === 'object') {
+    for (const [day, v] of Object.entries(r.meals as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v)) meals[day] = v;
+    }
+  }
+  return { records, meals, settings: typeof r.settings === 'string' ? r.settings : '' };
+}
+
+/** 一条记录的内容指纹：只用来判断「有没有改过」 */
+function recordFingerprint(r: WorkRecord): string {
+  return r.date + '|' + r.hours + '|' + (r.rate === null ? '' : r.rate) + '|' + r.note;
+}
+
+/** 给当前数据拍一份指纹快照，同步成功后存进配置 */
+export function buildBase(data: AppData): SyncBase {
+  const records: Record<string, string> = {};
+  for (const r of data.records) records[r.id] = recordFingerprint(r);
+  const meals: Record<string, number> = {};
+  for (const day of Object.keys(data.meals)) meals[day] = data.meals[day];
+  return { records, meals, settings: JSON.stringify(data.settings) };
 }
 
 export function defaultKV(): SyncKV | null {
@@ -108,6 +156,7 @@ export function normalizeSyncConfig(raw: unknown): SyncConfig {
     path: str(r.path) || base.path,
     lastSha: str(r.lastSha) || null,
     baseUpdatedAt: str(r.baseUpdatedAt) || null,
+    base: normalizeBase(r.base),
   };
 }
 
@@ -251,7 +300,8 @@ function sameRecord(a: WorkRecord, b: WorkRecord): boolean {
 export function planMerge(
   local: AppData,
   remote: RemoteDoc,
-  localUpdatedAt: string | null = ''
+  localUpdatedAt: string | null = '',
+  base: SyncBase | null = null
 ): { merged: AppData; risk: OverwriteRisk } {
   const merged = mergeWorklog(local, remote, localUpdatedAt);
   const risk: OverwriteRisk = { records: 0, meals: 0, settings: false };
@@ -259,14 +309,18 @@ export function planMerge(
     const theirs = new Map(remote.data.records.map((r) => [r.id, r]));
     for (const mine of local.records) {
       const other = theirs.get(mine.id);
-      if (other && !sameRecord(mine, other)) risk.records++;
+      if (!other || sameRecord(mine, other)) continue;
+      // 有快照时，本地这条没被改过就不算「覆盖了用户的改动」，静默采用远端即可
+      if (!base || base.records[mine.id] !== recordFingerprint(mine)) risk.records++;
     }
     for (const day of Object.keys(local.meals)) {
       const other = remote.data.meals[day];
-      if (other !== undefined && other !== local.meals[day]) risk.meals++;
+      if (other === undefined || other === local.meals[day]) continue;
+      if (!base || base.meals[day] !== local.meals[day]) risk.meals++;
     }
     if (localUpdatedAt) {
-      risk.settings = JSON.stringify(remote.data.settings) !== JSON.stringify(local.settings);
+      const changed = JSON.stringify(remote.data.settings) !== JSON.stringify(local.settings);
+      if (changed && (!base || base.settings !== JSON.stringify(local.settings))) risk.settings = true;
     }
   }
   return { merged, risk };
@@ -499,6 +553,11 @@ export interface SyncController {
   stop(): void;
 }
 
+/** 值不值得自动重试：网络抖动 / 服务端 5xx 值得，鉴权、路径、坏文件不值得 */
+function isRetryable(err: SyncError): boolean {
+  return err.code === 'network' || err.code === 'http';
+}
+
 function toSyncError(err: unknown): SyncError {
   if (err instanceof SyncError) return err;
   return new SyncError('network', '网络不通，稍后会自动重试');
@@ -573,6 +632,13 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     writeCfg({ ...cur, ...patch });
   };
 
+  /** 同步成功（拉或推）：记下 sha / 基线，顺手更新「上次同步快照」，供下次判假阳性冲突 */
+  const markSynced = (data: AppData, sha: string | null, baseUpdatedAt: string | null): void => {
+    const cur = readCfg();
+    if (!isSyncConfigured(cur)) return;
+    writeCfg({ ...cur, lastSha: sha, baseUpdatedAt, base: buildBase(data) });
+  };
+
   /** 串行执行：避免两次推送拿着同一个 sha 撞车。错误照常抛给调用方，队列本身不卡住 */
   function enqueue<T>(fn: () => Promise<T>): Promise<T> {
     const run = chain.then(fn, fn);
@@ -629,8 +695,15 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   const fail = (err: SyncError, job: { json: string; data: AppData } | null): void => {
     // 失败：这次变更留在待推里，下次 flush / 打开页面继续补推
     if (job && !pending) pending = job;
-    failCount++;
-    armRetry();
+    // R-D：只有「可能一会儿就好」的错误才做指数退避。401/403/404/坏文件重试也没用，
+    // 反复撞 API 反而吃限流；这类错误只提示，等下次编辑 / 手动同步 / 重开页面再试。
+    if (isRetryable(err)) {
+      failCount++;
+      armRetry();
+    } else {
+      failCount = 0;
+      clearRetry();
+    }
     emit('unsynced', err.message);
     notice('云同步失败：' + err.message, 'warn', err.code + ':' + String(err.status || ''));
   };
@@ -658,7 +731,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
     try {
       const res = await transport.push(doc, cfg.lastSha, keepalive);
-      patchMeta({ lastSha: res.sha, baseUpdatedAt: doc.updatedAt });
+      markSynced(data, res.sha, doc.updatedAt);
       knownJson = JSON.stringify(data);
       syncedJson = knownJson;
       succeed('已同步');
@@ -680,7 +753,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         // 文件被删了：当成新建，不要带 sha
         const retryDoc = buildRemoteDoc(current, now());
         const res = await transport.push(retryDoc, null, keepalive);
-        patchMeta({ lastSha: res.sha, baseUpdatedAt: retryDoc.updatedAt });
+        markSynced(current, res.sha, retryDoc.updatedAt);
         knownJson = JSON.stringify(current);
         syncedJson = knownJson;
         succeed('已同步');
@@ -689,7 +762,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       if (!preferLocal) {
         // 409 这条路也能静默覆盖本地（跨设备时比启动拉取更常见）：
         // 重新拉到的远端如果会抹掉本地改动，同样停下来等用户选
-        const retryPlan = planMerge(current, fresh.doc, baseUpdatedAt);
+        const retryPlan = planMerge(current, fresh.doc, baseUpdatedAt, readCfg().base);
         const retryMergedJson = JSON.stringify(retryPlan.merged);
         if (hasRisk(retryPlan.risk) && retryMergedJson !== JSON.stringify(current)) {
           conflict = { local: current, remote: fresh.doc, merged: retryPlan.merged, risk: retryPlan.risk, sha: fresh.sha };
@@ -769,7 +842,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }
 
     const local = deps.getData();
-    const plan = planMerge(local, res.doc, cfg.baseUpdatedAt);
+    const plan = planMerge(local, res.doc, cfg.baseUpdatedAt, cfg.base);
     const merged = plan.merged;
     const mergedJson = JSON.stringify(merged);
     const remoteJson = JSON.stringify(res.doc.data);
@@ -785,7 +858,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       return;
     }
 
-    patchMeta({ lastSha: res.sha, baseUpdatedAt: res.doc.updatedAt || cfg.baseUpdatedAt });
+    markSynced(merged, res.sha, res.doc.updatedAt || cfg.baseUpdatedAt);
     knownJson = mergedJson;
     // 拉取期间用户可能又记了一条：merged 是刚读的快照，已经包含它，
     // 旧的待推快照留着会在 8 秒后把远端覆盖掉（远端独有的记录就没了）
@@ -900,7 +973,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           // 选云端且合并结果就等于远端：不用回写
           knownJson = remoteJson;
           syncedJson = remoteJson;
-          patchMeta({ lastSha: c.sha, baseUpdatedAt: c.remote.updatedAt });
+          markSynced(target, c.sha, c.remote.updatedAt);
           succeed('已采用云端版本');
           return;
         }

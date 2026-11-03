@@ -386,6 +386,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (moved) {
         next.lastSha = null;
         next.baseUpdatedAt = null;
+        next.base = null; // 换了仓库，旧仓库的快照没意义
         // 旧仓库的冲突快照不能拿来合新仓库
         syncRef.current?.dropConflict();
       }
