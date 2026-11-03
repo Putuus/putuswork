@@ -750,3 +750,242 @@
   from { opacity: 0; transform: translate3d(0, 10px, 0); }
   to { opacity: 1; transform: none; }
 }
+
+/* ==========================================================================
+   手机竖屏（≤760px）—— 只覆盖手机，1180px 桌面一个像素都不动
+   1) 触摸目标 ≥44px   2) 抽屉变贴底整屏面板   3) 安全区 env()
+   4) 100dvh（地址栏会吃掉 100vh）  5) 触屏 :active 代替 hover  6) 纯 CSS 锁滚动
+   ========================================================================== */
+
+/* 底部面板上滑动画：只被下面窄屏的 .drawer 引用，桌面不用 */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+@media (max-width: 760px) {
+  /* ---------- 顶栏：压扁一点，给内容腾地方 ---------- */
+  .topbar {
+    /* 顶部安全区：现在 env()=0 等于 8px，加了 viewport-fit=cover 才真正让开刘海 */
+    padding: calc(8px + var(--safe-t, 0px)) var(--gutter) 8px;
+    /* 高度钉住：日历星期行要按它吸附，别让字体/内容把它撑高 */
+    min-height: var(--topbar-h, 73px);
+  }
+
+  .topbar__inner {
+    padding: 6px 8px 6px 12px;
+    gap: 8px;
+  }
+
+  .brand {
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  .brand__mark,
+  .brand__img {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+  }
+
+  .tabs {
+    gap: 2px;
+    padding: 3px;
+  }
+
+  .tab {
+    padding: 7px 11px;
+    font-size: 13.5px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* ---------- 触摸目标：手指点得中才叫能用 ---------- */
+  .btn {
+    height: var(--tap, 44px);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .btn--clay {
+    height: calc(var(--tap, 44px) + 4px);
+  }
+
+  .btn--sm {
+    height: 40px;
+  }
+
+  .btn--icon {
+    width: var(--tap, 44px);
+  }
+
+  .chip {
+    height: 40px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .seg__item {
+    min-height: 40px;
+    padding: 8px 14px;
+    touch-action: manipulation;
+  }
+
+  /* 开关本体只有 52×32，用伪元素把可点范围撑到 64×48（外观不变） */
+  .switch::after {
+    content: "";
+    position: absolute;
+    inset: -8px -6px;
+  }
+
+  /* ---------- 表单：16px 起，iOS 聚焦不会把整页顶大 ---------- */
+  .input,
+  .input--area,
+  .numfield__input {
+    font-size: var(--field-font, 16px);
+  }
+
+  .field__label {
+    font-size: 12px;
+  }
+
+  /* ---------- 抽屉里的单条记录：手机上会被 NumberField 的 148px 撑破 ----------
+     NumberField 的宽度是内联 style，只能靠 max-width 压（max-width 会赢过 width，不用 !important）；
+     真到了 360px 还放不下就换行，宁可换一行也别被抽屉裁掉 */
+  .rec__top {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .rec__top .input-row {
+    max-width: 120px;
+  }
+
+  .rec__top .btn--sm {
+    padding: 0 10px;
+  }
+
+  .rec__money {
+    font-size: 14px;
+  }
+
+  /* ---------- 抽屉：从右边飞进来 → 改成从底下上来的整屏面板 ---------- */
+  .drawer {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh; /* 移动浏览器地址栏收起/展开都算对 */
+    max-height: 100dvh;
+    border-left: 0;
+    border-top: 1px solid var(--glass-border);
+    border-radius: var(--sheet-radius, var(--radius-xl)) var(--sheet-radius, var(--radius-xl)) 0 0;
+    padding-bottom: calc(var(--sheet-pad-b, 26px) + var(--safe-b, 0px));
+    box-shadow: 0 -34px 80px -30px rgba(12, 18, 38, 0.55);
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    animation: sheet-up var(--dur-3) var(--ease-out);
+  }
+
+  /* 顶上那道小把手：一眼看出这是能往下收的面板 */
+  .drawer__head {
+    padding-top: calc(var(--gap-4) + 6px);
+  }
+
+  .drawer__head::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 36px;
+    height: 5px;
+    transform: translateX(-50%);
+    border-radius: var(--radius-pill);
+    background: var(--hairline);
+  }
+
+  /* 抽屉底栏（当前未用，留着也不许压住手势条） */
+  .drawer__foot {
+    left: 0;
+    width: 100%;
+    padding-bottom: calc(var(--gap-3) + var(--safe-b, 0px));
+  }
+
+  /* ---------- 抽屉打开时锁住背后的页面：纯 CSS，靠 :has() ----------
+     只锁 body，不锁 html：给 html 加 overflow:hidden 时 Chromium 会把滚动位置
+     夹回 0（关掉抽屉人就回到页面顶部），实测只锁 body 位置不变且滚轮推不动 */
+  body:has(.drawer) {
+    overflow: hidden;
+  }
+
+  /* 抽屉自己滚到底后不要把滚动传给背后的页面 */
+  .scrim,
+  .drawer {
+    overscroll-behavior: contain;
+  }
+
+  /* ---------- 底部悬浮元素：让开 iPhone 手势条 ---------- */
+  .batchbar {
+    bottom: var(--dock-b, calc(env(safe-area-inset-bottom, 0px) + 12px));
+    width: calc(100vw - var(--gutter) * 2);
+    max-height: 62vh;
+    max-height: 62dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--gap-2) var(--gap-3);
+  }
+
+  .toast {
+    bottom: var(--dock-b, calc(env(safe-area-inset-bottom, 0px) + 12px));
+    max-width: calc(100vw - var(--gutter) * 2);
+    padding: 10px 16px;
+    font-size: 13.5px;
+  }
+
+  /* 抽屉是整屏面板时，提示条别压住面板底部的「清空这一天」——挪到顶栏下面 */
+  body:has(.drawer) .toast {
+    top: calc(var(--topbar-h, 73px) + 10px);
+    bottom: auto;
+  }
+
+  /* ---------- 一次一屏的滚动区：dvh 免得被地址栏吃掉 ---------- */
+  .snap-scroller {
+    height: min(58dvh, 520px);
+  }
+
+  /* ---------- 触屏按下就有反馈，不用等 hover ---------- */
+  .chip:active,
+  .tab:active,
+  .seg__item:active {
+    transform: scale(0.96);
+  }
+
+  .btn--glass:active {
+    background: var(--glass-bg-strong);
+  }
+}
+
+/* 纯触摸设备：把「悬停才出现」的状态统一改成按下态，手指点完不会黏住 */
+@media (hover: none) {
+  .chip:hover {
+    transform: none;
+    color: var(--ink-2);
+  }
+
+  .btn--clay:hover {
+    transform: none;
+  }
+
+  .numfield__step:hover {
+    color: var(--ink-4);
+    background: transparent;
+  }
+
+  .numfield__step:active {
+    color: var(--accent-2);
+    background: var(--accent-soft);
+  }
+}

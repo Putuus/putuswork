@@ -770,3 +770,274 @@ html[data-theme="dark"] .cell.is-work .cell__h {
   .day-row { grid-template-columns: 78px minmax(0, 1fr) auto; }
   .day-row__money { display: none; }
 }
+
+/* ==========================================================================
+   手机竖屏（≤760px）—— 目标：360~430px 上「点日期 → 填工时 → 保存」顺畅
+   规则：h1 已按 1180px 桌面锁定，这里只做手机覆盖
+   ========================================================================== */
+@media (max-width: 760px) {
+  /* ---------- 月份条：一行放不下 6 个控件，允许换行 ---------- */
+  .monthbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .monthbar__label {
+    min-width: 0;
+    font-size: 16px;
+    white-space: nowrap;
+  }
+
+  .monthbar__range {
+    font-size: 12px;
+  }
+
+  .monthbar__spacer {
+    margin-left: auto;
+  }
+
+  /* ---------- 汇总卡：手机上两列会挤出格子，改成上下叠 ---------- */
+  .hero {
+    padding: 20px 18px 22px;
+    border-radius: var(--radius-lg);
+  }
+
+  .hero__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--gap-3);
+  }
+
+  .hero__v {
+    font-size: 38px;
+    white-space: nowrap;
+  }
+
+  .hero__foot {
+    gap: 8px 16px;
+    margin-top: var(--gap-3);
+    padding-top: var(--gap-2);
+    font-size: 12.5px;
+  }
+
+  /* ---------- 日历：卡片内边距收窄，7 列才分得到 44px ---------- */
+  .calendar {
+    padding: var(--gap-3) 6px var(--gap-2);
+  }
+
+  .cal__head {
+    top: var(--topbar-h, 73px); /* 贴着顶栏底边停（实测顶栏 72.92px） */
+    gap: 4px;
+    padding: 8px 0; /* 与 .cal__grid 左右对齐，不再错开 6px */
+  }
+
+  .cal__head span {
+    font-size: 12.5px;
+    letter-spacing: 0;
+  }
+
+  .cal__grid {
+    gap: 4px;
+  }
+
+  /* ---------- 格子：最小 44×44，数字不换行 ----------
+     桌面的 aspect-ratio(1/0.86) 必须关掉：高度被 min-height 抬到 44 之后，
+     宽高比会反过来把宽度算成 44÷0.86≈51px，7 列网格直接横向溢出 */
+  .cell {
+    aspect-ratio: auto;
+    min-height: var(--tap, 44px);
+    padding: 6px 7px;
+    gap: 3px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .cell__d {
+    font-size: 15px;
+    line-height: 1.15;
+    white-space: nowrap;
+  }
+
+  .cell__h {
+    font-size: 11.5px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .cell__meal {
+    right: 4px;
+    bottom: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
+  }
+
+  .cell__mark {
+    top: 4px;
+    right: 4px;
+  }
+
+  .cell__mark.mark-chip {
+    padding: 1px 5px;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+
+  .cell__tick {
+    left: 4px;
+    bottom: 4px;
+    width: 16px;
+    height: 16px;
+  }
+
+  .cell__more {
+    right: 3px;
+    bottom: 3px;
+    width: 28px;
+    height: 28px;
+    touch-action: manipulation;
+  }
+
+  .cell:active {
+    transform: scale(0.97);
+  }
+
+  /* ---------- 就地输入：手机上让输入框吃满格子 ----------
+     日期让位给输入框，⋯ 挪到右上角（不然 46px 的格子塞不下两样）
+     输入框字号必须 ≥16px，否则 iOS 一聚焦就把整页放大 */
+  .cell.is-editing {
+    min-height: 56px;
+    padding: 3px;
+    justify-content: flex-end;
+    touch-action: manipulation;
+  }
+
+  .cell.is-editing .cell__d {
+    display: none;
+  }
+
+  .cell.is-editing .cell__meal {
+    display: none;
+  }
+
+  .cell.is-editing .cell__mark {
+    top: 4px;
+    left: 3px;
+    right: auto;
+  }
+
+  .cell.is-editing .cell__more {
+    top: 2px;
+    right: 2px;
+    bottom: auto;
+    width: 30px;
+    height: 22px;
+    font-size: 14px;
+  }
+
+  .cell.is-editing .cell__input {
+    position: static;
+    width: 100%;
+    max-width: none;
+    height: 28px;
+    padding: 0 2px;
+    font-size: 16px;
+    text-align: center;
+  }
+
+  /* ---------- 其它页面的窄屏收尾 ---------- */
+  .recent__card {
+    width: 200px;
+  }
+
+  .day-row {
+    gap: 10px;
+    padding: 10px;
+  }
+}
+
+/* 360~430px：再挤一档，保证 360px 宽度下格子仍有 44px */
+@media (max-width: 430px) {
+  .calendar {
+    padding-inline: 4px;
+  }
+
+  .cal__head,
+  .cal__grid {
+    gap: 3px;
+  }
+
+  .cell {
+    padding: 5px 5px 6px;
+  }
+
+  .cell__d {
+    font-size: 14px;
+  }
+
+  .cell__h {
+    font-size: 10px;
+  }
+
+  .cell__meal {
+    right: 3px;
+    bottom: 3px;
+    padding: 1px 4px;
+    font-size: 9.5px;
+  }
+
+  .hero__v {
+    font-size: 32px;
+  }
+
+  /* 批量条：三列在 375px 下每列只剩一百出头，改成一列堆叠 */
+  .batchbar__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--gap-2);
+  }
+}
+
+/* 手机竖屏：一行里「12.5h」和「餐 15」根本放不下（实测重叠 24×13px），
+   餐补改成一个橙色小点；金额仍在格子 title 属性和当天抽屉里 */
+@media (max-width: 620px) {
+  .cell__meal {
+    right: 2px;
+    bottom: 3px;
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
+    background: var(--meal);
+    box-shadow: 0 0 0 2px var(--meal-soft);
+    overflow: hidden;
+  }
+}
+
+/* 纯触摸设备：hover 会「粘住」在最后点过的格子上，改成按下态
+   （放在文件最后，确保压过上面所有 :hover 规则） */
+@media (hover: none) {
+  .cell:hover {
+    transform: none;
+  }
+
+  .cell:hover:not(.is-work) {
+    background: var(--glass-bg-thin);
+    border-color: var(--hairline);
+    box-shadow: var(--glass-inner);
+  }
+
+  .cell:not(.is-work):active {
+    background: var(--glass-bg-strong);
+    border-color: rgba(139, 92, 246, 0.32);
+    transform: scale(0.97);
+  }
+
+  .day-row:hover {
+    background: transparent;
+  }
+
+  .day-row:active {
+    background: var(--glass-bg-thin);
+  }
+}
