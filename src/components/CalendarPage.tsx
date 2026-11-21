@@ -37,6 +37,7 @@ export function CalendarPage() {
   const [editingText, setEditingText] = useState('');
   const painting = useRef<boolean | null>(null);
   const lastPicked = useRef<string | null>(null);
+  const railRef = useRef<HTMLElement | null>(null);
 
   const stats = useMemo(() => monthStats(data, cursor.y, cursor.m), [data, cursor.y, cursor.m]);
   const cells = useMemo(() => monthMatrix(cursor.y, cursor.m, settings.weekStart), [cursor.y, cursor.m, settings.weekStart]);
@@ -62,6 +63,28 @@ export function CalendarPage() {
     };
     window.addEventListener('mouseup', up);
     return () => window.removeEventListener('mouseup', up);
+  }, []);
+
+  // 人物画跟随鼠标：只改 CSS 变量，不触发 React 重渲染
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const el = railRef.current;
+      if (!el) return;
+      const x = e.clientX / window.innerWidth - 0.5;
+      const y = e.clientY / window.innerHeight - 0.5;
+      const cards = el.querySelectorAll<HTMLElement>('.art-rail__card');
+      cards.forEach((card, i) => {
+        const depth = i === 0 ? 1 : 1.6;
+        const tx = (x * -18 * depth).toFixed(1);
+        const ty = (y * -14 * depth).toFixed(1);
+        card.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+          img.style.left = `${(-18 + Number(tx)).toFixed(1)}px`;
+          img.style.top = `${(-18 + Number(ty)).toFixed(1)}px`;
+        });
+      });
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
   }, []);
 
   const togglePick = (iso: string, add: boolean) => {
@@ -200,7 +223,8 @@ export function CalendarPage() {
 
   return (
     <div className="page view-fade">
-      <div className="wrap stack" style={{ '--stack-gap': '18px' } as CSSProperties}>
+      <div className="wrap page-layout">
+      <div className="page-main stack" style={{ '--stack-gap': '18px' } as CSSProperties}>
         <div className="monthbar" data-reveal>
           <button type="button" className="btn btn--glass btn--icon" onClick={() => go(-1)} aria-label="上个月">
             ‹
@@ -391,17 +415,6 @@ export function CalendarPage() {
           </div>
         </section>
 
-        <section className="art-strip" aria-hidden="true">
-          <div className="art-strip__item art-strip__item--putus">
-            <img className="art-light" src={import.meta.env.BASE_URL + 'print-putus-wide.webp'} alt="" loading="lazy" decoding="async" />
-            <img className="art-dark" src={import.meta.env.BASE_URL + 'print-putus-wide-dark.webp'} alt="" loading="lazy" decoding="async" />
-          </div>
-          <div className="art-strip__item art-strip__item--blue">
-            <img className="art-light" src={import.meta.env.BASE_URL + 'print-blue-wide.webp'} alt="" loading="lazy" decoding="async" />
-            <img className="art-dark" src={import.meta.env.BASE_URL + 'print-blue-wide-dark.webp'} alt="" loading="lazy" decoding="async" />
-          </div>
-        </section>
-
         <section data-reveal>
           <div className="section-title">
             <span className="h2">最近记录</span>
@@ -447,6 +460,18 @@ export function CalendarPage() {
           </button>
         </section>
       </div>
+
+      <aside className="art-rail" ref={railRef} aria-hidden="true">
+        <div className="art-rail__card">
+          <img className="art-light" src={import.meta.env.BASE_URL + 'print-putus-wide.webp'} alt="" />
+          <img className="art-dark" src={import.meta.env.BASE_URL + 'print-putus-wide-dark.webp'} alt="" />
+        </div>
+        <div className="art-rail__card">
+          <img className="art-light" src={import.meta.env.BASE_URL + 'print-blue-wide.webp'} alt="" />
+          <img className="art-dark" src={import.meta.env.BASE_URL + 'print-blue-wide-dark.webp'} alt="" />
+        </div>
+      </aside>
+    </div>
 
       {openISO ? <DayDrawer iso={openISO} onClose={() => setOpenISO(null)} /> : null}
 

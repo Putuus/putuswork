@@ -448,36 +448,46 @@ html[data-theme="dark"] .cell.is-work[data-level="3"] { background: color-mix(in
 
 /* ---------------- 艺术带 / 导出 ---------------- */
 
-.art-strip {
+.page-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  height: clamp(220px, 22vw, 280px);
-  overflow: hidden;
-  background: var(--line);
-  border: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  align-items: start;
 }
 
-.art-strip__item {
+.page-main { min-width: 0; }
+
+.art-rail {
+  position: sticky;
+  top: 88px;
+  display: grid;
+  gap: 8px;
+}
+
+.art-rail__card {
   position: relative;
+  height: 160px;
   overflow: hidden;
+  border: 1px solid var(--line);
   background: var(--surface);
 }
 
-.art-strip__item img {
+.art-rail__card img {
   position: absolute;
-  inset: 0;
+  left: -18px;
+  top: -18px;
   display: block;
-  width: 100%;
-  height: 100%;
+  width: calc(100% + 36px);
+  height: calc(100% + 36px);
   object-fit: cover;
+  transition: left 240ms var(--ease-out), top 240ms var(--ease-out);
+  will-change: left, top;
 }
 
-.art-strip__item--putus img { object-position: center 30%; }
-.art-strip__item--blue img { object-position: center 42%; }
-.art-strip .art-dark { display: none; }
-html[data-theme="dark"] .art-strip .art-light { display: none; }
-html[data-theme="dark"] .art-strip .art-dark { display: block; }
+
+.art-rail .art-dark { display: none; }
+html[data-theme="dark"] .art-rail .art-light { display: none; }
+html[data-theme="dark"] .art-rail .art-dark { display: block; }
 
 .export-bar {
   display: flex;
@@ -542,8 +552,22 @@ html[data-theme="dark"] .art-strip .art-dark { display: block; }
 [data-reveal] { transform: translate3d(0, 12px, 0); transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-3) var(--ease-out); }
 
 /* ---------------- 手机竖屏 ---------------- */
+@media (max-width: 1080px) {
+  .page-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .art-rail {
+    position: static;
+    order: -1;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .art-rail__card { height: 130px; border: 0; }
+}
+
 @media (max-width: 760px) {
   :root { --gutter: 16px; --content-max: 100%; --topbar-h: calc(60px + var(--safe-t)); }
+  .art-rail__card { height: 110px; }
   .topbar { padding: 0 var(--gutter); min-height: var(--topbar-h); }
   .topbar__inner { height: 60px; padding: 0; }
   .brand { font-size: 14px; }
@@ -584,7 +608,6 @@ html[data-theme="dark"] .art-strip .art-dark { display: block; }
   .cell.is-editing { min-height: 56px; padding: 3px; }
   .cell.is-editing .cell__input { max-width: none; height: 28px; font-size: 16px; text-align: center; }
   .recent__card { width: 200px; }
-  .art-strip { height: 170px; }
   .export-bar { justify-content: flex-start; flex-wrap: wrap; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; }
   .stat { padding: 16px; }
