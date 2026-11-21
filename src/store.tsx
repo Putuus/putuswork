@@ -144,13 +144,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(t);
   }, [data, toast]);
 
-  // 用非 localhost 地址打开时会看到另一套（空的）数据，先提醒一句
-  useEffect(() => {
-    const h = window.location.hostname;
-    if (h !== 'localhost' && h !== '127.0.0.1') {
-      toast('提示：你现在是用 ' + h + ' 打开的，数据和 localhost 不互通', 'warn');
-    }
-  }, [toast]);
 
   // 本地文件：改动后自动落盘
   useEffect(() => {
