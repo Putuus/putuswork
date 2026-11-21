@@ -392,7 +392,14 @@ export function CalendarPage() {
         </section>
 
         <section className="art-strip" aria-hidden="true">
-          <img src={import.meta.env.BASE_URL + 'art-figure.webp'} alt="" loading="lazy" decoding="async" />
+          <div className="art-strip__item art-strip__item--putus">
+            <img className="art-light" src={import.meta.env.BASE_URL + 'print-putus-wide.webp'} alt="" loading="lazy" decoding="async" />
+            <img className="art-dark" src={import.meta.env.BASE_URL + 'print-putus-wide-dark.webp'} alt="" loading="lazy" decoding="async" />
+          </div>
+          <div className="art-strip__item art-strip__item--blue">
+            <img className="art-light" src={import.meta.env.BASE_URL + 'print-blue-wide.webp'} alt="" loading="lazy" decoding="async" />
+            <img className="art-dark" src={import.meta.env.BASE_URL + 'print-blue-wide-dark.webp'} alt="" loading="lazy" decoding="async" />
+          </div>
         </section>
 
         <section data-reveal>

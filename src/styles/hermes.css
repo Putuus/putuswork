@@ -449,21 +449,35 @@ html[data-theme="dark"] .cell.is-work[data-level="3"] { background: color-mix(in
 /* ---------------- 艺术带 / 导出 ---------------- */
 
 .art-strip {
-  position: relative;
-  display: block;
-  height: clamp(180px, 18vw, 240px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  height: clamp(220px, 22vw, 280px);
   overflow: hidden;
   background: var(--line);
   border: 1px solid var(--line);
 }
 
-.art-strip img {
+.art-strip__item {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.art-strip__item img {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 45%;
 }
+
+.art-strip__item--putus img { object-position: center 30%; }
+.art-strip__item--blue img { object-position: center 42%; }
+.art-strip .art-dark { display: none; }
+html[data-theme="dark"] .art-strip .art-light { display: none; }
+html[data-theme="dark"] .art-strip .art-dark { display: block; }
 
 .export-bar {
   display: flex;
@@ -570,7 +584,7 @@ html[data-theme="dark"] .cell.is-work[data-level="3"] { background: color-mix(in
   .cell.is-editing { min-height: 56px; padding: 3px; }
   .cell.is-editing .cell__input { max-width: none; height: 28px; font-size: 16px; text-align: center; }
   .recent__card { width: 200px; }
-  .art-strip { height: 160px; }
+  .art-strip { height: 170px; }
   .export-bar { justify-content: flex-start; flex-wrap: wrap; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; }
   .stat { padding: 16px; }
