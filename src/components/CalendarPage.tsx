@@ -392,8 +392,7 @@ export function CalendarPage() {
         </section>
 
         <section className="art-strip" aria-hidden="true">
-          <img src={import.meta.env.BASE_URL + 'art-night.webp'} alt="" loading="lazy" decoding="async" />
-          <img src={import.meta.env.BASE_URL + 'art-lily.webp'} alt="" loading="lazy" decoding="async" />
+          <img src={import.meta.env.BASE_URL + 'art-figure.webp'} alt="" loading="lazy" decoding="async" />
         </section>
 
         <section data-reveal>
