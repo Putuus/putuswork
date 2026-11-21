@@ -450,26 +450,30 @@ html[data-theme="dark"] .cell.is-work[data-level="3"] { background: color-mix(in
 
 .page-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
 .page-main { min-width: 0; }
 
+/* 两张人物画：桌面上也走手机那套顶部双联，不再挂在右侧 */
 .art-rail {
-  position: sticky;
-  top: 88px;
+  position: static;
+  order: -1;
   display: grid;
-  gap: 8px;
-  margin-top: 134px;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  background: var(--line);
+  border: 1px solid var(--line);
 }
 
 .art-rail__card {
   position: relative;
-  height: 160px;
+  height: clamp(170px, 17vw, 230px);
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 0;
   background: var(--surface);
 }
 
@@ -599,17 +603,7 @@ html[data-theme="dark"] .art-rail .art-dark { display: block; }
 
 /* ---------------- 手机竖屏 ---------------- */
 @media (max-width: 1080px) {
-  .page-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; }
-  .art-rail {
-    position: static;
-    order: -1;
-    margin-top: 0;
-    grid-template-columns: 1fr 1fr;
-    gap: 1px;
-    background: var(--line);
-    border: 1px solid var(--line);
-  }
-  .art-rail__card { height: 130px; border: 0; }
+  .art-rail__card { height: clamp(140px, 18vw, 190px); }
 }
 
 @media (max-width: 760px) {
