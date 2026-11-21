@@ -49,6 +49,13 @@ export function CalendarPage() {
     return map;
   }, [data.records]);
 
+  /** 一天有多条记录时，就地编辑会把其它条目吞掉——这种情况直接开详情抽屉 */
+  const recordCountByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of data.records) map.set(r.date, (map.get(r.date) || 0) + 1);
+    return map;
+  }, [data.records]);
+
   useEffect(() => {
     const up = () => {
       painting.current = null;
@@ -66,6 +73,10 @@ export function CalendarPage() {
 
   /* ---------------- 就地输入工时（单击格子直接打字） ---------------- */
   const startEditing = (iso: string) => {
+    if ((recordCountByDate.get(iso) || 0) > 1) {
+      setOpenISO(iso);
+      return;
+    }
     const h = hoursByDate.get(iso) || 0;
     setEditingText(h > 0 ? String(h) : '');
     setEditingISO(iso);
