@@ -29,7 +29,6 @@ import {
 import { clampMeal } from './lib/calc';
 import { runStartup } from './lib/startup';
 import {
-  createSyncController,
   defaultSyncConfig,
   isSyncConfigured,
   loadSyncConfig,
@@ -168,23 +167,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  /* --------------------------------- 云同步 --------------------------------- */
-
-  // 配置了才启动；未配置时这里一个网络请求都不会发（A002 第 1 条）
+  /* ------------------------- 启动 seed（云同步已改用 Supabase） ------------------------- */
   useEffect(() => {
-    const ctrl = createSyncController({
-      getData: () => dataRef.current,
-      // 立刻同步 dataRef：React 提交前 getData() 还得拿到刚合并的结果
-      applyRemote: (next) => {
-        dataRef.current = next;
-        setData(next);
-      },
-      onStatus: (s) => setSyncStatus(s),
-      onNotice: (text, kind) => toast(text, kind),
-    });
-    syncRef.current = ctrl;
-    // 整页启动：seed 预置（仅 DEV）+ 云同步。抽到 runStartup 里是为了能在装配层测
-    // 「未配置 PAT 时零网络请求」（项目没有 jsdom，跑不了真实挂载）
     void runStartup({
       dev: import.meta.env.DEV,
       seedUrl: import.meta.env.BASE_URL + 'seed.json',
@@ -217,31 +201,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       },
       notify: (text) => toast(text),
-      startSync: () => ctrl.start(),
+      startSync: async () => {
+        /* 旧的 GitHub 同步已停用；自动同步统一走下面的 Supabase */
+      },
     });
-
-    // 关页面 / 切后台 / 锁屏：立刻推，别等那 8 秒防抖。
-    // keepalive 让请求在页面销毁后仍能发完（否则手机上一关页就白推）
-    const flushNow = () => {
-      void ctrl.flush({ keepalive: true });
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') flushNow();
-    };
-    // 断网时打开页面：拉取失败、pending 为空，只 flush 等于什么都不做 → 用 syncNow 重拉
-    const retrySync = () => {
-      void ctrl.syncNow();
-    };
-    window.addEventListener('pagehide', flushNow);
-    window.addEventListener('online', retrySync);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      window.removeEventListener('pagehide', flushNow);
-      window.removeEventListener('online', retrySync);
-      document.removeEventListener('visibilitychange', onVisibility);
-      ctrl.stop();
-      syncRef.current = null;
-    };
   }, [toast]);
 
   // Supabase 自动同步：本地优先，启动拉一次，改动后 1.4s 合并推送
