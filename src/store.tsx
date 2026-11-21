@@ -38,6 +38,17 @@ import {
   type SyncController,
   type SyncStatus,
 } from './lib/sync';
+import {
+  cloudGet,
+  cloudHead,
+  cloudLink,
+  cloudPut,
+  ensureCloudSpace,
+  mergeCloud,
+  normalizeRemote,
+  readCloudConfig,
+  writeCloudConfig,
+} from './lib/cloud';
 
 export interface Toast {
   id: string;
@@ -82,6 +93,8 @@ interface StoreValue {
   syncTest: () => Promise<{ ok: boolean; message: string }>;
   /** 有覆盖风险时用户拍板：'remote' 用云端覆盖本地，'local' 用本地覆盖云端 */
   resolveSyncConflict: (choice: 'remote' | 'local') => Promise<void>;
+  /** 第一台设备生成的同步链接；新设备打开一次就绑定 */
+  cloudLink: string;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -102,6 +115,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const dataRef = useRef<AppData>(data);
   const syncRef = useRef<SyncController | null>(null);
   const timers = useRef<number[]>([]);
+  const [cloudSpace] = useState<string>(() => ensureCloudSpace());
+  const cloudScheduler = useRef<(() => void) | null>(null);
+  const link = useMemo(() => cloudLink(cloudSpace), [cloudSpace]);
 
   const toast = useCallback((text: string, kind: 'ok' | 'warn' = 'ok') => {
     const id = uid();
@@ -235,10 +251,106 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [toast]);
 
+  // Supabase 自动同步：本地优先，启动拉一次，改动后 1.4s 合并推送
+  useEffect(() => {
+    let alive = true;
+    let timer = 0;
+    let inFlight = false;
+
+    const run = async () => {
+      if (!alive || inFlight) return;
+      inFlight = true;
+      try {
+        const remote = await cloudGet(cloudSpace);
+        const local = dataRef.current;
+        const localJson = JSON.stringify(local);
+        const cfg = readCloudConfig() || { space: cloudSpace, lastJson: '', lastAt: '' };
+
+        if (!remote) {
+          const res = await cloudPut(cloudSpace, local);
+          if (alive) writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+          return;
+        }
+
+        const remoteData = normalizeRemote(remote);
+        const remoteJson = JSON.stringify(remoteData);
+        const localEmpty = local.records.length === 0 && Object.keys(local.meals).length === 0;
+        const clean = cfg.lastJson === localJson;
+        const merged = localEmpty
+          ? remoteData
+          : mergeCloud(local, remote, clean ? cfg.lastAt || '' : new Date().toISOString());
+        const mergedJson = JSON.stringify(merged);
+
+        if (alive && mergedJson !== localJson) {
+          dataRef.current = merged;
+          setData(merged);
+        }
+
+        let at = remote.updated_at;
+        if (mergedJson !== remoteJson) {
+          const res = await cloudPut(cloudSpace, merged);
+          at = res.updated_at;
+        }
+        if (alive) writeCloudConfig({ space: cloudSpace, lastJson: mergedJson, lastAt: at });
+      } catch {
+        /* 断网/代理失败：保持本地，下次改动或重开再试 */
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void run(), 1400);
+    };
+    cloudScheduler.current = schedule;
+    timer = window.setTimeout(() => void run(), 900);
+    // 另一台设备改动后，最多 8 秒在这里出现；只拉 updated_at，变了才拉正文
+    let headOk = true;
+    const check = async () => {
+      if (inFlight) return;
+      if (!headOk) {
+        void run();
+        return;
+      }
+      try {
+        const head = await cloudHead(cloudSpace);
+        const cfg = readCloudConfig();
+        if (head && head.updated_at !== (cfg?.lastAt || '')) {
+          void run();
+        } else if (!head && cfg?.lastAt) {
+          void run();
+        }
+      } catch {
+        // 还没跑最新的 schema.sql（缺 worklog_head）时退回整份拉取
+        headOk = false;
+        void run();
+      }
+    };
+    const interval = window.setInterval(() => void check(), 8000);
+    const wake = () => {
+      if (document.visibilityState !== 'hidden') void run();
+    };
+    window.addEventListener('focus', wake);
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      window.removeEventListener('focus', wake);
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+      cloudScheduler.current = null;
+    };
+  }, [cloudSpace]);
+
   // 数据一变就交给同步层：有没有实质变化由它判断（刚被远端覆盖的不会回推）
   useEffect(() => {
     dataRef.current = data;
     if (syncRef.current) syncRef.current.schedule(data);
+    cloudScheduler.current?.();
   }, [data]);
 
   const setSettings = useCallback((patch: Partial<Settings>) => {
@@ -486,6 +598,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncNow,
       syncTest,
       resolveSyncConflict,
+      cloudLink: link,
     }),
     [
       data,
@@ -516,6 +629,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncNow,
       syncTest,
       resolveSyncConflict,
+      link,
     ]
   );
 

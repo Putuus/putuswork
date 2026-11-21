@@ -499,6 +499,51 @@ html[data-theme="dark"] .art-rail .art-dark { display: block; }
 }
 
 /* 设置页只留标签和控件，解释性小字全部收起；同步状态是功能反馈，保留 */
+.sync-legacy { display: none !important; }
+
+.sync-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(560px, 100%);
+  min-width: 0;
+}
+
+.sync-link-row .input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0;
+}
+
+.sync-link-row .btn { flex: 0 0 auto; }
+
+@media (max-width: 900px) {
+  .settings .sync-row {
+    display: block;
+  }
+  .settings .sync-row .row__label {
+    margin-bottom: 8px;
+  }
+  .settings .sync-link-row {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .sync-link-row {
+    flex-wrap: wrap;
+  }
+  .sync-link-row .input {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .sync-link-row .btn {
+    width: 100%;
+  }
+}
+
 .settings .tiny:not(.sync-status) {
   display: none;
 }

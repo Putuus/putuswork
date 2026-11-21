@@ -7,7 +7,8 @@
 日历没有照抄原 App 那种黄色方块，而是重新设计了一套**蓝色热力**：工时越多底色越深，餐补用琥珀色小徽标单独标出来。
 
 - 纯静态前端，零运行时依赖（没引任何 UI 库、图表库、日期库）
-- 数据默认存在浏览器本地，**不会上传到任何服务器**；可选关联一个本地 JSON 文件自动落盘
+- 数据本地优先；开启同步后存进你自己的 Supabase，换设备不用导入
+- 可选关联一个本地 JSON 文件自动落盘，断网也能记
 - 电脑端设计（1240px 内容宽度、键盘快捷键、悬浮抽屉），手机上也能打开但不作为目标
 
 ---
@@ -49,9 +50,20 @@
 
 ### 设置
 - 默认时薪、默认餐补、周起始日、显示或隐藏收入、主题（浅色 / 深色 / **跟随系统**，切换 Windows 深色模式会实时跟着变）
+- **同步**：设置页有一行「同步链接」，复制到新设备打开一次；之后不用登录、不用导入，改动会自动同步
 - 数据：导出 JSON、**合并导入**（只补新记录，按 日期+工时+备注 去重，不动现有数据）、覆盖导入、关联本地文件自动保存、清空数据
 
 ---
+
+## 同步
+
+- 第一台设备打开时生成一个随机 `space_id`，设置页里的链接就是钥匙；新设备打开这个链接一次即可
+- 本地优先：断网照常记，联网后自动补传
+- 每 8 秒只查一次 `updated_at`，真的有变化才拉正文；记录按 `id` 合并，不会整份覆盖
+- 后端是 Supabase：`worklog_spaces` 表开启 RLS，`anon` 只能通过 `worklog_get / worklog_head / worklog_put` 三个函数按 `space_id` 读写，不能枚举整表
+- 前端只带 Supabase 的 public publishable key；`service_role` 永远不进前端
+
+后端建表脚本在 [supabase/schema.sql](supabase/schema.sql)，一次性设置见 [SUPABASE_SETUP.md](SUPABASE_SETUP.md)。
 
 ## 页面动效
 
@@ -97,7 +109,7 @@ vite.config.ts 里 base 用的是相对路径 './'，所以放在 用户名.gith
 | 字体 | Inter Variable（@fontsource 打进产物，48KB woff2） | SF Pro 的免费等价替代，Mac 上优先用系统真 SF，Windows 上也不掉档；不联网取字体 |
 | 图表 | 手写 CSS / SVG 柱状图 | 不引 ECharts，省下 ~1MB |
 | 报表出图 | Canvas 2D 手绘 + toBlob | 不引 html2canvas，字体、配色全在代码里可控 |
-| 存储 | localStorage +（可选）File System Access API | 数据只在本机；关联一个 JSON 文件后每次改动自动写盘 |
+| 存储 | localStorage + Supabase +（可选）File System Access API | 本地优先；同步时用 Supabase 的 RPC 合并，关联 JSON 文件后每次改动自动写盘 |
 | 状态管理 | React Context + 纯函数式不可变更新 | 单页工具，用不上 Redux / Zustand |
 | 测试 / CI | 暂无单测；GitHub Actions 只做构建和发布 Pages | 计算层全是纯函数（calc / date / holidays），想补 vitest 随时能上 |
 
@@ -106,7 +118,7 @@ vite.config.ts 里 base 用的是相对路径 './'，所以放在 用户名.gith
 - 开发机：**WSL2（Ubuntu 24.04）+ Windows 11**；Node 22.22 / pnpm 12（你这台机器上现成的，没额外装东西）
 - 浏览器：Windows 上的 Chrome / Edge（File System Access、backdrop-filter、Canvas 都支持）
 - 部署：纯静态产物（dist/ 约 1.3MB），可丢 GitHub Pages 或任意静态托管
-- 运行时依赖：**只有 react 和 react-dom**，其余全是构建期依赖；没有后端、没有数据库、不联网
+- 运行时依赖：**只有 react 和 react-dom**，其余全是构建期依赖；同步时访问自己的 Supabase 项目，不接第三方统计
 
 ## 目录结构
 

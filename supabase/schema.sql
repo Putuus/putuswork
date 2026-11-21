@@ -30,6 +30,23 @@ as $$
   end;
 $$;
 
+-- 轻量探针：只返回 updated_at，客户端每 8 秒查一次；有变化才拉正文
+create or replace function public.worklog_head(p_space text)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$
+  select case
+    when length(p_space) < 24 then null
+    else (
+      select jsonb_build_object('updated_at', updated_at)
+      from public.worklog_spaces
+      where space_id = p_space
+    )
+  end;
+$$;
+
 create or replace function public.worklog_put(p_space text, p_payload jsonb)
 returns jsonb
 language plpgsql
@@ -52,6 +69,8 @@ end;
 $$;
 
 revoke all on function public.worklog_get(text) from public;
+revoke all on function public.worklog_head(text) from public;
 revoke all on function public.worklog_put(text, jsonb) from public;
 grant execute on function public.worklog_get(text) to anon, authenticated;
+grant execute on function public.worklog_head(text) to anon, authenticated;
 grant execute on function public.worklog_put(text, jsonb) to anon, authenticated;

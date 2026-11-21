@@ -28,6 +28,7 @@ export function SettingsPage() {
     syncNow,
     syncTest,
     resolveSyncConflict,
+    cloudLink,
   } = useStore();
   const { settings } = data;
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -102,6 +103,15 @@ export function SettingsPage() {
     toast('已覆盖导入 ' + next.records.length + ' 条记录');
   };
 
+  const copyCloudLink = async () => {
+    try {
+      await navigator.clipboard.writeText(cloudLink);
+      toast('同步链接已复制');
+    } catch {
+      toast('复制失败，手动选中链接', 'warn');
+    }
+  };
+
   return (
     <div className="page view-fade settings">
       <div className="wrap stack" style={{ '--stack-gap': '22px' } as CSSProperties}>
@@ -173,6 +183,29 @@ export function SettingsPage() {
                 { value: 'auto', label: '跟随系统' },
               ]}
             />
+          </div>
+        </section>
+
+        <section className="glass card" data-reveal>
+          <div className="section-title">
+            <span className="h2">同步</span>
+          </div>
+          <div className="row sync-row">
+            <div className="row__label">
+              <strong>同步链接</strong>
+            </div>
+            <div className="sync-link-row">
+              <input
+                className="input"
+                readOnly
+                value={cloudLink}
+                aria-label="同步链接"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button type="button" className="btn btn--clay btn--sm" onClick={() => void copyCloudLink()}>
+                复制
+              </button>
+            </div>
           </div>
         </section>
 
@@ -311,7 +344,7 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="glass card" data-reveal>
+        <section className="glass card sync-legacy" data-reveal>
           <div className="section-title">
             <span className="h2">云同步</span>
             <span className="tiny dim">副本存进你自己的 GitHub 私有仓库；不填令牌就完全是本地应用</span>
