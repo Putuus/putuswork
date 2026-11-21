@@ -391,15 +391,18 @@ export function CalendarPage() {
           </div>
         </section>
 
+        <section className="art-strip" aria-hidden="true">
+          <img src={import.meta.env.BASE_URL + 'art-night.webp'} alt="" loading="lazy" decoding="async" />
+          <img src={import.meta.env.BASE_URL + 'art-lily.webp'} alt="" loading="lazy" decoding="async" />
+        </section>
+
         <section data-reveal>
           <div className="section-title">
             <span className="h2">最近记录</span>
-            <span className="tiny dim">横向滑动查看</span>
           </div>
           {recent.length === 0 ? (
             <div className="glass card empty">
-              <span className="empty__art">📝</span>
-              <span>还没有记录，点日历上任意一天就能开始记</span>
+              <span>还没有记录</span>
             </div>
           ) : (
             <div className="h-scroller">
@@ -429,65 +432,13 @@ export function CalendarPage() {
           )}
         </section>
 
-        <section className="glass card" data-reveal>
-          <div className="row">
-            <div className="row__label">
-              <strong>本月小结</strong>
-              <div className="tiny muted">
-                {monthLabel(cursor.y, cursor.m)} · 出勤 {stats.workDays} 天 · 日均 {stats.avgHours} h
-              </div>
-            </div>
-            <div className="row__value num" style={{ color: 'var(--ink-1)', fontWeight: 700 }}>
-              {settings.currency}
-              {money(stats.income)}
-            </div>
-          </div>
-          <div className="row">
-            <div className="row__label">
-              <strong>日历标记</strong>
-              <div className="tiny muted">
-                法定节假日与调休按国务院办公厅 2026 年安排标注；周末单独着色
-              </div>
-            </div>
-            <div className="row__value nowrap">
-              <span className="mark-chip mark-chip--holiday">国庆</span> 放假 ·{' '}
-              <span className="mark-chip mark-chip--workday">班</span> 调休上班
-            </div>
-          </div>
-          <div className="row">
-            <div className="row__label">
-              <strong>导出</strong>
-              <div className="tiny muted">
-                图片是这个月的报表（直接发微信就行）；CSV 是全部月份的每日明细，末尾附按月汇总
-              </div>
-            </div>
-            <div className="row__value nowrap" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn--clay btn--sm" onClick={() => void exportReportImage()}>
-                导出报表图片
-              </button>
-              <button type="button" className="btn btn--glass btn--sm" onClick={exportCSV}>
-                导出 CSV 明细
-              </button>
-            </div>
-          </div>
-          <div className="row">
-            <div className="row__label">
-              <strong>怎么记更快</strong>
-              <div className="tiny muted">
-                单击格子直接填工时（回车确认，Esc 取消）；再点右下角「⋯」或双击格子打开详情，记餐补 / 多条 / 备注
-              </div>
-            </div>
-            <div className="row__value nowrap">批量模式：Shift 点选区间 · Ctrl+A 全选当月</div>
-          </div>
-          <div className="row">
-            <div className="row__label">
-              <strong>键盘快捷键</strong>
-              <div className="tiny muted">上手之后基本不用点鼠标</div>
-            </div>
-            <div className="row__value nowrap">
-              <span className="kbd">←</span> <span className="kbd">→</span> 切月 · <span className="kbd">T</span> 今天
-            </div>
-          </div>
+        <section className="export-bar" data-reveal>
+          <button type="button" className="btn btn--clay btn--sm" onClick={() => void exportReportImage()}>
+            导出报表图片
+          </button>
+          <button type="button" className="btn btn--glass btn--sm" onClick={exportCSV}>
+            导出 CSV
+          </button>
         </section>
       </div>
 

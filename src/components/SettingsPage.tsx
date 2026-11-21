@@ -103,7 +103,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="page view-fade">
+    <div className="page view-fade settings">
       <div className="wrap stack" style={{ '--stack-gap': '22px' } as CSSProperties}>
         <section className="glass card" data-reveal>
           <div className="section-title">
@@ -320,7 +320,7 @@ export function SettingsPage() {
           <div className="row">
             <div className="row__label">
               <strong>当前状态</strong>
-              <div className="tiny muted">{syncLabel}</div>
+              <div className="tiny muted sync-status">{syncLabel}</div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -445,7 +445,7 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="glass card" data-reveal>
+        <section className="glass card settings-about" data-reveal>
           <div className="section-title">
             <span className="h2">关于</span>
             <span className="tiny dim">v0.1.0 · MIT</span>

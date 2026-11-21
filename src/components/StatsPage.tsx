@@ -55,7 +55,6 @@ export function StatsPage() {
             <div className="snap-panel">
               <div className="section-title">
                 <span className="h2">近 12 个月工时</span>
-                <span className="tiny dim">单位：小时</span>
               </div>
               <div className="bars">
                 {series.map((p) => (
@@ -116,7 +115,6 @@ export function StatsPage() {
             <div className="snap-panel">
               <div className="section-title">
                 <span className="h2">最忙的几天</span>
-                <span className="tiny dim">横向滑动</span>
               </div>
               <div className="h-scroller">
                 {top.length === 0 ? (
@@ -141,9 +139,6 @@ export function StatsPage() {
                     </div>
                   ))
                 )}
-              </div>
-              <div className="tiny dim center" style={{ marginTop: 8 }}>
-                继续往下滚，明细在下面
               </div>
             </div>
           </div>
