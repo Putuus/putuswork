@@ -462,6 +462,7 @@ html[data-theme="dark"] .cell.is-work[data-level="3"] { background: color-mix(in
   top: 88px;
   display: grid;
   gap: 8px;
+  margin-top: 134px;
 }
 
 .art-rail__card {
@@ -474,11 +475,11 @@ html[data-theme="dark"] .cell.is-work[data-level="3"] { background: color-mix(in
 
 .art-rail__card img {
   position: absolute;
-  left: -18px;
-  top: -18px;
+  left: -28px;
+  top: -28px;
   display: block;
-  width: calc(100% + 36px);
-  height: calc(100% + 36px);
+  width: calc(100% + 56px);
+  height: calc(100% + 56px);
   object-fit: cover;
   transition: left 240ms var(--ease-out), top 240ms var(--ease-out);
   will-change: left, top;
@@ -557,6 +558,7 @@ html[data-theme="dark"] .art-rail .art-dark { display: block; }
   .art-rail {
     position: static;
     order: -1;
+    margin-top: 0;
     grid-template-columns: 1fr 1fr;
     gap: 1px;
     background: var(--line);

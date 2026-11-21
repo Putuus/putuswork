@@ -75,11 +75,11 @@ export function CalendarPage() {
       const cards = el.querySelectorAll<HTMLElement>('.art-rail__card');
       cards.forEach((card, i) => {
         const depth = i === 0 ? 1 : 1.6;
-        const tx = (x * -18 * depth).toFixed(1);
-        const ty = (y * -14 * depth).toFixed(1);
+        const tx = (x * -26 * depth).toFixed(1);
+        const ty = (y * -20 * depth).toFixed(1);
         card.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
-          img.style.left = `${(-18 + Number(tx)).toFixed(1)}px`;
-          img.style.top = `${(-18 + Number(ty)).toFixed(1)}px`;
+          img.style.left = `${(-28 + Number(tx)).toFixed(1)}px`;
+          img.style.top = `${(-28 + Number(ty)).toFixed(1)}px`;
         });
       });
     };
