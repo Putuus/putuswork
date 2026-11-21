@@ -32,9 +32,9 @@ export function StatsPage() {
       <div className="wrap stack" style={{ '--stack-gap': '22px' } as CSSProperties}>
         <div className="stat-grid" data-reveal>
           <Stat k="本月工时" v={String(month.hours)} unit="h" />
-          <Stat k="本月收入" v={money(month.income)} unit={settings.currency} />
-          <Stat k="本月餐补" v={money(month.meal)} unit={settings.currency} sub={month.mealDays + ' 天'} />
-          <Stat k="本年累计" v={money(year.income)} unit={settings.currency} sub={year.hours + ' h'} />
+          <Stat k="本月收入" v={settings.currency + money(month.income)} />
+          <Stat k="本月餐补" v={settings.currency + money(month.meal)} sub={month.mealDays + ' 天'} />
+          <Stat k="本年累计" v={settings.currency + money(year.income)} sub={year.hours + ' h'} />
         </div>
 
         {/* Scroll Snap：一次停一屏 */}

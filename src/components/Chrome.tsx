@@ -5,20 +5,7 @@ import type { Toast } from '../store';
 import { useStore } from '../store';
 
 export function Background() {
-  return (
-    <div className="bg" aria-hidden="true">
-      <div
-        className="bg__photo"
-        data-parallax="0.02"
-        style={{ backgroundImage: 'url(' + import.meta.env.BASE_URL + 'background.jpg)' }}
-      />
-      <div className="bg__veil" />
-      <div className="blob blob--1" data-parallax="0.08" />
-      <div className="blob blob--2" data-parallax="0.14" />
-      <div className="bg__sheen" />
-      <div className="bg__grain" />
-    </div>
-  );
+  return <div className="bg" aria-hidden="true" />;
 }
 
 /** Scroll-linked：顶部阅读进度条，滚动多少走多少 */

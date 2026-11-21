@@ -463,7 +463,7 @@ export function CalendarPage() {
             <div className="row__label">
               <strong>怎么记更快</strong>
               <div className="tiny muted">
-                单击格子直接填工时（回车确认，Esc 取消）；点右下角「⋯」或双击格子打开详情，记餐补 / 多条 / 备注
+                单击格子直接填工时（回车确认，Esc 取消）；再点右下角「⋯」或双击格子打开详情，记餐补 / 多条 / 备注
               </div>
             </div>
             <div className="row__value nowrap">批量模式：Shift 点选区间 · Ctrl+A 全选当月</div>

@@ -29,6 +29,8 @@ function Shell() {
     data.settings.theme === 'auto' ? (systemDark ? 'dark' : 'light') : data.settings.theme;
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", resolvedTheme === "dark" ? "#0d0d24" : "#e9e4d6");
   }, [resolvedTheme]);
 
   // 只有真正按下按键（在输入框里打字）才临时把光标显示出来

@@ -7,6 +7,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/components.css';
 import './styles/pages.css';
+import './styles/hermes.css';
 
 const host = document.getElementById('root');
 if (!host) throw new Error('找不到 #root 节点');

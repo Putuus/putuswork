@@ -13,11 +13,6 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
 
   return (
     <section className="hero" data-reveal aria-label="本月汇总">
-      <div
-        className="hero__photo"
-        style={{ backgroundImage: 'url(' + import.meta.env.BASE_URL + 'hero.jpg)' }}
-      />
-
       <div className="hero__grid">
         <div>
           <div className="hero__k">本月工时</div>
