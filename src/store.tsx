@@ -258,7 +258,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // 本地有改动，且云端在“上次同步之后”也变了；或这台设备还没同步过但云端已有数据：
         // 都不自动覆盖，停下来让用户选。手机第一次打开旧的本地数据不会再静默盖掉电脑的新数据。
         const neverSynced = !cfg.lastJson;
-        const remoteChanged = !!cfg.lastAt && remote.updated_at !== cfg.lastAt;
+        const remoteChanged = !cfg.lastAt || remote.updated_at !== cfg.lastAt;
         if ((neverSynced || remoteChanged) && dirty && remoteJson !== localJson) {
           cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at };
           if (alive) {
