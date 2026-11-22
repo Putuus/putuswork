@@ -1,9 +1,8 @@
-/** 顶部汇总：Hermes 风格双联人物画卡片 + 本月饭补可直接填总数 */
+/** 顶部汇总：Hermes 风格双联人物画卡片 + 按月饭补 */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { money } from '../lib/calc';
 import type { MonthStats } from '../lib/calc';
-import { monthLabel } from '../lib/date';
 import { useStore } from '../store';
 import { EyeIcon } from './ui';
 
@@ -16,10 +15,44 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
   const shown = settings.showIncome;
   const monthKey = stats.y + '-' + String(stats.m + 1).padStart(2, '0');
   const [mealText, setMealText] = useState(stats.meal > 0 ? String(stats.meal) : '');
+  const panelsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMealText(stats.meal > 0 ? String(stats.meal) : '');
   }, [stats.meal, monthKey]);
+
+  // 鼠标在页面里移动时，两张人物画在各自卡片内部轻微反向位移
+  useEffect(() => {
+    const root = panelsRef.current;
+    if (!root) return;
+    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.hero__panel-art'));
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+
+    const reset = () => {
+      imgs.forEach((img) => {
+        img.style.transform = 'translate3d(0, 0, 0) scale(1.04)';
+      });
+    };
+    const onMove = (e: PointerEvent) => {
+      const x = e.clientX / window.innerWidth - 0.5;
+      const y = e.clientY / window.innerHeight - 0.5;
+      imgs.forEach((img, i) => {
+        const depth = i === 0 ? 1 : 1.35;
+        const tx = (x * -16 * depth).toFixed(1);
+        const ty = (y * -12 * depth).toFixed(1);
+        img.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(1.04)`;
+      });
+    };
+
+    reset();
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerleave', reset);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerleave', reset);
+    };
+  }, []);
 
   const commitMeal = () => {
     const n = Number(mealText.replace(/[^\d.]/g, ''));
@@ -28,9 +61,11 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
     setMealText(value > 0 ? String(value) : '');
   };
 
+  const best = stats.bestDay;
+
   return (
     <section className="hero" data-reveal aria-label="本月汇总">
-      <div className="hero__panels">
+      <div className="hero__panels" ref={panelsRef}>
         <article className="hero__panel">
           <img className="hero__panel-art" src={ART_HOURS} alt="" />
           <div className="hero__panel-shade" />
@@ -73,35 +108,62 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
         </article>
       </div>
 
-      <div className="hero__foot">
-        <span>{monthLabel(stats.y, stats.m)}</span>
-        <span>出勤 {stats.workDays} 天</span>
-        <label className="hero__meal">
-          <span>本月饭补</span>
-          <span className="hero__meal-cur">{settings.currency}</span>
-          <input
-            className="hero__meal-input"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.01"
-            value={mealText}
-            placeholder="0"
-            aria-label="本月饭补"
-            onChange={(e) => setMealText(e.target.value)}
-            onBlur={commitMeal}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
-            }}
-          />
-        </label>
-        <span>日均 {stats.avgHours} h</span>
-        {stats.bestDay ? (
-          <span>
-            最多的一天 {stats.bestDay.hours}h（{stats.bestDay.iso.slice(5).replace('-', '/')}）
+      <div className="hero__stats">
+        <div className="hero__stat">
+          <span className="hero__stat-k">出勤</span>
+          <span className="hero__stat-v">
+            {stats.workDays}
+            <small>天</small>
           </span>
-        ) : null}
+        </div>
+
+        <div className="hero__stat">
+          <span className="hero__stat-k">日均</span>
+          <span className="hero__stat-v">
+            {stats.avgHours}
+            <small>h</small>
+          </span>
+        </div>
+
+        <div className="hero__stat">
+          <span className="hero__stat-k">最多一天</span>
+          <span className="hero__stat-v">
+            {best ? (
+              <>
+                {best.hours}
+                <small>h</small>
+                <em>{best.iso.slice(5).replace('-', '/')}</em>
+              </>
+            ) : (
+              <span className="hero__stat-empty">—</span>
+            )}
+          </span>
+        </div>
+
+        <label className="hero__stat hero__stat--meal">
+          <span className="hero__stat-k">本月饭补</span>
+          <span className="hero__stat-v hero__stat-v--meal">
+            <span className="hero__meal-cur">{settings.currency}</span>
+            <input
+              className="hero__meal-input"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={mealText}
+              placeholder="0"
+              aria-label="本月饭补"
+              onChange={(e) => setMealText(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={commitMeal}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+            />
+          </span>
+        </label>
       </div>
+
     </section>
   );
 }
