@@ -6,7 +6,8 @@ import { mergeWorklog } from './sync';
 
 const SUPABASE_URL = 'https://zpqpkqisdzhsnmoyuztd.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_hjgOgXzKeZx_AHobhTzPAw_lOtOEoDA';
-const CONFIG_KEY = 'worklog:cloud';
+const CONFIG_KEY = 'worklog:cloud:v2';
+const LEGACY_CONFIG_KEY = 'worklog:cloud';
 const SYNC_PROTOCOL = 2;
 const SPACE_RE = /^[a-f0-9]{32}$/i;
 
@@ -44,7 +45,7 @@ function safeSet(key: string, value: string): void {
 }
 
 export function readCloudConfig(): CloudConfig | null {
-  const raw = safeGet(CONFIG_KEY);
+  const raw = safeGet(CONFIG_KEY) || safeGet(LEGACY_CONFIG_KEY);
   if (!raw) return null;
   try {
     const obj = JSON.parse(raw) as Partial<CloudConfig>;
@@ -85,7 +86,10 @@ export function ensureCloudSpace(): string {
     return fromHash;
   }
   const existing = readCloudConfig();
-  if (existing) return existing.space;
+  if (existing) {
+    if (!safeGet(CONFIG_KEY)) writeCloudConfig({ space: existing.space, lastJson: '', lastAt: '' });
+    return existing.space;
+  }
   const space = randomSpace();
   writeCloudConfig({ space, lastJson: '', lastAt: '' });
   return space;

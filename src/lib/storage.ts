@@ -2,14 +2,15 @@
 
 import { DATA_VERSION, defaultSettings, emptyData, type AppData } from '../types';
 
-const KEY = 'worklog:v1';
+const KEY = 'worklog:v2';
+const LEGACY_KEY = 'worklog:v1';
 const HANDLE_DB = 'worklog-fs';
 const HANDLE_STORE = 'handles';
 
 /* ---------------------------------- 主存储 --------------------------------- */
 
 export function loadData(): AppData {
-  const raw = localStorage.getItem(KEY);
+  const raw = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
   if (!raw) return emptyData();
   try {
     const parsed = JSON.parse(raw) as Partial<AppData>;
