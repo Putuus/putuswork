@@ -245,6 +245,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const remoteData = normalizeRemote(remote);
         const remoteJson = JSON.stringify(remoteData);
 
+        // 本地已经清空过（cfg 里有上次快照），云端还是旧记录：
+        // 只要云端没有比本地更新时间更新，就以本地的「空」为准，别把删掉的记录再拉回来。
+        if (localEmpty && cfg.lastJson && remoteJson !== localJson) {
+          const remoteNewer = Date.parse(remote.updated_at) > Date.parse(cfg.lastAt || '');
+          if (!remoteNewer) {
+            const res = await cloudPut(cloudSpace, local);
+            if (alive) writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+            return;
+          }
+        }
+
         // 拉取期间用户又改了：丢掉这次结果，交给下一轮推本地
         if (JSON.stringify(dataRef.current) !== localJson) return;
 
