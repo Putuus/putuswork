@@ -262,6 +262,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (alive) {
             setCloudConflict(true);
             setCloudStatus({ state: 'conflict', at: remote.updated_at });
+            toast('云端也有改动，去设置里选择保留哪边', 'warn');
           }
           return;
         }
@@ -337,7 +338,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', wake);
       cloudScheduler.current = null;
     };
-  }, [cloudSpace]);
+  }, [cloudSpace, toast]);
 
   const resolveCloudConflict = useCallback(
     async (choice: 'local' | 'remote') => {
