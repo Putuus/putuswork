@@ -41,6 +41,84 @@ const MAKEUP_2026: Array<{ date: string; short: string; name: string }> = [
   { date: '2026-10-10', short: '班', name: '国庆调休上班（周六）' },
 ];
 
+/**
+ * 2025 / 2027 内置兜底，来自 holiday-cn 的国务院公告数据。
+ * 运行时仍会优先拉取最新 JSON；断网时至少有 2025–2027 可用。
+ */
+const BUNDLED_DAYS: Record<number, Array<{ name: string; date: string; isOffDay: boolean }>> = {
+  2025: [
+    { name: '元旦', date: '2025-01-01', isOffDay: true },
+    { name: '春节', date: '2025-01-26', isOffDay: false },
+    { name: '春节', date: '2025-01-28', isOffDay: true },
+    { name: '春节', date: '2025-01-29', isOffDay: true },
+    { name: '春节', date: '2025-01-30', isOffDay: true },
+    { name: '春节', date: '2025-01-31', isOffDay: true },
+    { name: '春节', date: '2025-02-01', isOffDay: true },
+    { name: '春节', date: '2025-02-02', isOffDay: true },
+    { name: '春节', date: '2025-02-03', isOffDay: true },
+    { name: '春节', date: '2025-02-04', isOffDay: true },
+    { name: '春节', date: '2025-02-08', isOffDay: false },
+    { name: '清明节', date: '2025-04-04', isOffDay: true },
+    { name: '清明节', date: '2025-04-05', isOffDay: true },
+    { name: '清明节', date: '2025-04-06', isOffDay: true },
+    { name: '劳动节', date: '2025-04-27', isOffDay: false },
+    { name: '劳动节', date: '2025-05-01', isOffDay: true },
+    { name: '劳动节', date: '2025-05-02', isOffDay: true },
+    { name: '劳动节', date: '2025-05-03', isOffDay: true },
+    { name: '劳动节', date: '2025-05-04', isOffDay: true },
+    { name: '劳动节', date: '2025-05-05', isOffDay: true },
+    { name: '端午节', date: '2025-05-31', isOffDay: true },
+    { name: '端午节', date: '2025-06-01', isOffDay: true },
+    { name: '端午节', date: '2025-06-02', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-09-28', isOffDay: false },
+    { name: '国庆节、中秋节', date: '2025-10-01', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-02', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-03', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-04', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-05', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-06', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-07', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-08', isOffDay: true },
+    { name: '国庆节、中秋节', date: '2025-10-11', isOffDay: false },
+  ],
+  2027: [
+    { name: '元旦', date: '2027-01-01', isOffDay: true },
+    { name: '元旦', date: '2027-01-02', isOffDay: true },
+    { name: '元旦', date: '2027-01-03', isOffDay: true },
+    { name: '春节', date: '2027-01-31', isOffDay: false },
+    { name: '春节', date: '2027-02-05', isOffDay: true },
+    { name: '春节', date: '2027-02-06', isOffDay: true },
+    { name: '春节', date: '2027-02-07', isOffDay: true },
+    { name: '春节', date: '2027-02-08', isOffDay: true },
+    { name: '春节', date: '2027-02-09', isOffDay: true },
+    { name: '春节', date: '2027-02-10', isOffDay: true },
+    { name: '春节', date: '2027-02-11', isOffDay: true },
+    { name: '春节', date: '2027-02-12', isOffDay: true },
+    { name: '春节', date: '2027-02-13', isOffDay: true },
+    { name: '春节', date: '2027-02-14', isOffDay: false },
+    { name: '清明节', date: '2027-04-03', isOffDay: true },
+    { name: '清明节', date: '2027-04-04', isOffDay: true },
+    { name: '清明节', date: '2027-04-05', isOffDay: true },
+    { name: '劳动节', date: '2027-05-01', isOffDay: true },
+    { name: '劳动节', date: '2027-05-02', isOffDay: true },
+    { name: '劳动节', date: '2027-05-03', isOffDay: true },
+    { name: '劳动节', date: '2027-05-04', isOffDay: true },
+    { name: '劳动节', date: '2027-05-05', isOffDay: true },
+    { name: '劳动节', date: '2027-05-08', isOffDay: false },
+    { name: '端午节', date: '2027-06-09', isOffDay: true },
+    { name: '中秋节', date: '2027-09-15', isOffDay: true },
+    { name: '国庆节', date: '2027-09-26', isOffDay: false },
+    { name: '国庆节', date: '2027-10-01', isOffDay: true },
+    { name: '国庆节', date: '2027-10-02', isOffDay: true },
+    { name: '国庆节', date: '2027-10-03', isOffDay: true },
+    { name: '国庆节', date: '2027-10-04', isOffDay: true },
+    { name: '国庆节', date: '2027-10-05', isOffDay: true },
+    { name: '国庆节', date: '2027-10-06', isOffDay: true },
+    { name: '国庆节', date: '2027-10-07', isOffDay: true },
+    { name: '国庆节', date: '2027-10-09', isOffDay: false },
+  ],
+};
+
 const SHORT: Record<string, string> = {
   元旦: '元旦',
   春节: '春节',
@@ -86,13 +164,13 @@ interface HolidayFile {
   days?: Array<{ date?: unknown; name?: unknown; isOffDay?: unknown }>;
 }
 
-function readCache(year: number): Record<string, DayMark> | null {
+function readCache(year: number): { days: Record<string, DayMark>; at: number } | null {
   try {
     const raw = localStorage.getItem(CACHE_PREFIX + year);
     if (!raw) return null;
     const obj = JSON.parse(raw) as { at?: number; days?: Record<string, DayMark> };
-    if (!obj.at || Date.now() - obj.at > CACHE_TTL || !obj.days) return null;
-    return obj.days;
+    if (!obj.at || !obj.days) return null;
+    return { days: obj.days, at: obj.at };
   } catch {
     return null;
   }
@@ -108,14 +186,23 @@ function writeCache(year: number, days: Record<string, DayMark>): void {
 
 /** 同步兜底：只内置了 2026，其他年份由 loadHolidayYear 拉取 */
 export function staticYearMarks(year: number): Record<string, DayMark> {
-  return year === 2026 ? STATIC_2026 : {};
+  if (year === 2026) return STATIC_2026;
+  const days = BUNDLED_DAYS[year];
+  if (!days) return {};
+  const map: Record<string, DayMark> = {};
+  for (const d of days) {
+    map[d.date] = d.isOffDay
+      ? { kind: 'holiday', short: shortName(d.name), name: d.name + '（放假）' }
+      : { kind: 'workday', short: '班', name: d.name + ' 调休上班' };
+  }
+  return map;
 }
 
 /** 拉取某一年的完整节假日；有缓存先用缓存，网络失败回退内置数据 */
 export async function loadHolidayYear(year: number): Promise<Record<string, DayMark>> {
   const cached = readCache(year);
-  if (cached) return cached;
-  const fallback = staticYearMarks(year);
+  const fallback = cached?.days ?? staticYearMarks(year);
+  if (cached && Date.now() - cached.at <= CACHE_TTL) return cached.days;
   try {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 8000);

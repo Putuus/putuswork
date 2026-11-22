@@ -14,7 +14,6 @@ import {
   todayISO,
   weekdayHeaders,
 } from '../lib/date';
-import { downloadJSON } from '../lib/storage';
 import { SummaryHero } from './SummaryHero';
 import { DayDrawer } from './DayDrawer';
 import { BatchBar } from './BatchBar';
@@ -244,16 +243,6 @@ export function CalendarPage() {
               }}
             >
               {batch ? '退出批量' : '批量'}
-            </button>
-            <button
-              type="button"
-              className="chip"
-              onClick={() => {
-                downloadJSON(data);
-                toast('已导出备份文件');
-              }}
-            >
-              备份
             </button>
           </div>
         </div>

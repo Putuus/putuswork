@@ -693,6 +693,23 @@ html[data-theme="dark"] .art-rail .art-dark { display: block; }
 
 .sync-link-row .btn { flex: 0 0 auto; }
 
+.sync-status-line {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.sync-conflict {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.sync-conflict > div:last-child { flex-wrap: wrap; }
+
 @media (max-width: 900px) {
   .settings .sync-row {
     display: block;

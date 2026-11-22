@@ -1,13 +1,14 @@
 /** 设置页：只保留计价、外观、同步和一次导出 */
 
-import type { CSSProperties } from 'react';
+import { useRef, type CSSProperties } from 'react';
 import { useStore } from '../store';
 import { NumberField, Seg, Switch, Field } from './ui';
-import { downloadJSON } from '../lib/storage';
+import { downloadJSON, parseImport, readFileAsText } from '../lib/storage';
 
 export function SettingsPage() {
-  const { data, setSettings, toast, cloudLink } = useStore();
+  const { data, setSettings, replaceAll, toast, cloudLink, cloudStatus, cloudConflict, resolveCloudConflict } = useStore();
   const { settings } = data;
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const copyCloudLink = async () => {
     try {
@@ -99,6 +100,34 @@ export function SettingsPage() {
               </button>
             </div>
           </div>
+
+          <div className="sync-status-line">
+            {cloudStatus.state === 'synced' && cloudStatus.at
+              ? '上次同步 ' + new Date(cloudStatus.at).toLocaleTimeString('zh-CN', { hour12: false })
+              : cloudStatus.state === 'syncing'
+                ? '同步中…'
+                : cloudStatus.state === 'error'
+                  ? '同步失败，稍后自动重试'
+                  : cloudStatus.state === 'conflict'
+                    ? '云端也有改动'
+                    : '等待同步'}
+          </div>
+
+          {cloudConflict ? (
+            <div className="row sync-conflict">
+              <div className="row__label">
+                <strong>云端和本地都有新改动</strong>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn btn--glass btn--sm" onClick={() => void resolveCloudConflict('remote')}>
+                  使用云端
+                </button>
+                <button type="button" className="btn btn--clay btn--sm" onClick={() => void resolveCloudConflict('local')}>
+                  保留本地
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="glass card" data-reveal>
@@ -119,6 +148,38 @@ export function SettingsPage() {
             >
               导出
             </button>
+          </div>
+
+          <div className="row">
+            <div className="row__label">
+              <strong>从 JSON 恢复</strong>
+            </div>
+            <div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/json,.json"
+                className="sr"
+                onChange={(e) => {
+                  const file = e.target.files ? e.target.files[0] : undefined;
+                  e.target.value = '';
+                  if (!file) return;
+                  void (async () => {
+                    const next = parseImport(await readFileAsText(file));
+                    if (!next) {
+                      toast('这个文件读不出来，确认是导出的 JSON 吗', 'warn');
+                      return;
+                    }
+                    if (!window.confirm('恢复会覆盖当前本地数据，继续？')) return;
+                    replaceAll(next);
+                    toast('已从 JSON 恢复 ' + next.records.length + ' 条记录');
+                  })();
+                }}
+              />
+              <button type="button" className="btn btn--glass btn--sm" onClick={() => fileRef.current?.click()}>
+                选择文件
+              </button>
+            </div>
           </div>
         </section>
       </div>

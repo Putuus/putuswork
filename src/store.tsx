@@ -70,6 +70,9 @@ interface StoreValue {
   unlinkFile: () => Promise<void>;
   /** 第一台设备生成的同步链接；新设备打开一次就绑定 */
   cloudLink: string;
+  cloudStatus: { state: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; at: string | null };
+  cloudConflict: boolean;
+  resolveCloudConflict: (choice: 'local' | 'remote') => Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -84,6 +87,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const dataRef = useRef<AppData>(data);
   const timers = useRef<number[]>([]);
   const [cloudSpace] = useState<string>(() => ensureCloudSpace());
+  const [cloudStatus, setCloudStatus] = useState<{
+    state: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict';
+    at: string | null;
+  }>({ state: 'idle', at: null });
+  const [cloudConflict, setCloudConflict] = useState(false);
+  const cloudConflictRef = useRef<{ remoteData: AppData; remoteAt: string } | null>(null);
   const cloudScheduler = useRef<(() => void) | null>(null);
   const link = useMemo(() => cloudLink(cloudSpace), [cloudSpace]);
 
@@ -173,15 +182,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
   // Supabase 自动同步：本地有改动就整份快照推上去，干净时才拉云端。
-  // 不做按 id 的并集合并：并集会把刚删掉的记录从云端捞回来，也会让编辑看起来“自己弹回去”。
+  // 不做按 id 的并集合并；云端和本地同时有改动时停下来，让用户选一边。
   useEffect(() => {
     let alive = true;
     let timer = 0;
     let inFlight = false;
 
+    const markSynced = () => {
+      if (alive) setCloudStatus({ state: 'synced', at: new Date().toISOString() });
+    };
+    const pushLocal = async (local: AppData, localJson: string) => {
+      const res = await cloudPut(cloudSpace, local);
+      if (alive) {
+        writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+        markSynced();
+      }
+    };
+
     const run = async () => {
-      if (!alive || inFlight) return;
+      if (!alive || inFlight || cloudConflictRef.current) return;
       inFlight = true;
+      if (alive) setCloudStatus({ state: 'syncing', at: null });
       try {
         const cfg = readCloudConfig() || { space: cloudSpace, lastJson: '', lastAt: '' };
         const local = dataRef.current;
@@ -190,28 +211,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const dirty = localJson !== cfg.lastJson;
         const brandNew = !cfg.lastJson && localEmpty;
 
-        // 这台设备有未同步的改动（新增 / 编辑 / 删除都算）：整份推本地
-        if (!brandNew && dirty) {
-          const res = await cloudPut(cloudSpace, local);
-          if (alive) {
-            writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
-          }
-          return;
-        }
-
         const remote = await cloudGet(cloudSpace);
         if (!remote) {
-          const res = await cloudPut(cloudSpace, local);
-          if (alive) {
-            writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
-          }
+          await pushLocal(local, localJson);
           return;
         }
 
         const rawProtocol = (remote.payload as { syncProtocol?: number } | null)?.syncProtocol;
         if (rawProtocol !== 2) {
-          // 旧版客户端推上来的快照没有 syncProtocol；它的按 id 合并会复活删除、回滚编辑。
-          // 新设备本地为空时只迁移一次；否则始终用本地整份快照覆盖它。
+          // 旧版客户端没有 syncProtocol，新客户端不把它的数据当权威
           if (brandNew) {
             const legacyData = normalizeRemote(remote);
             const legacyJson = JSON.stringify(legacyData);
@@ -222,42 +230,63 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               setData(legacyData);
             }
             const res = await cloudPut(cloudSpace, legacyData);
-            if (alive) writeCloudConfig({ space: cloudSpace, lastJson: legacyJson, lastAt: res.updated_at });
+            if (alive) {
+              writeCloudConfig({ space: cloudSpace, lastJson: legacyJson, lastAt: res.updated_at });
+              markSynced();
+            }
             return;
           }
-          const res = await cloudPut(cloudSpace, local);
-          if (alive) writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+          await pushLocal(local, localJson);
           return;
         }
 
         const remoteData = normalizeRemote(remote);
         const remoteJson = JSON.stringify(remoteData);
 
-        // 本地已经清空过（cfg 里有上次快照），云端还是旧记录：
-        // 只要云端没有比本地更新时间更新，就以本地的「空」为准，别把删掉的记录再拉回来。
-        if (localEmpty && cfg.lastJson && remoteJson !== localJson) {
-          const remoteNewer = Date.parse(remote.updated_at) > Date.parse(cfg.lastAt || '');
-          if (!remoteNewer) {
-            const res = await cloudPut(cloudSpace, local);
-            if (alive) writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
-            return;
-          }
-        }
-
-        // 拉取期间用户又改了：丢掉这次结果，交给下一轮推本地
-        if (JSON.stringify(dataRef.current) !== localJson) return;
-
-        if (remoteJson !== localJson) {
+        // 新设备 + 空本地：直接采用云端
+        if (brandNew) {
+          if (JSON.stringify(dataRef.current) !== localJson) return;
           writeCloudConfig({ space: cloudSpace, lastJson: remoteJson, lastAt: remote.updated_at });
           if (alive) {
             dataRef.current = remoteData;
             setData(remoteData);
+            markSynced();
+          }
+          return;
+        }
+
+        // 本地有改动，同时云端在“上次同步之后”也变了：不自动覆盖，停下来等选择
+        const remoteChanged = !!cfg.lastAt && remote.updated_at !== cfg.lastAt;
+        if (dirty && remoteChanged && remoteJson !== localJson) {
+          cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at };
+          if (alive) {
+            setCloudConflict(true);
+            setCloudStatus({ state: 'conflict', at: remote.updated_at });
+          }
+          return;
+        }
+
+        // 本地有未同步改动：整份推本地
+        if (dirty) {
+          await pushLocal(local, localJson);
+          return;
+        }
+
+        // 本地干净：采用云端新快照
+        if (remoteJson !== localJson) {
+          if (JSON.stringify(dataRef.current) !== localJson) return;
+          writeCloudConfig({ space: cloudSpace, lastJson: remoteJson, lastAt: remote.updated_at });
+          if (alive) {
+            dataRef.current = remoteData;
+            setData(remoteData);
+            markSynced();
           }
         } else {
           writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: remote.updated_at });
+          markSynced();
         }
       } catch {
-        /* 断网/代理失败：保持本地，下次改动或重开再试 */
+        if (alive) setCloudStatus({ state: 'error', at: null });
       } finally {
         inFlight = false;
       }
@@ -269,7 +298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     cloudScheduler.current = schedule;
     timer = window.setTimeout(() => void run(), 900);
-    // 另一台设备改动后，最多 8 秒在这里出现；只拉 updated_at，变了才拉正文
+
     let headOk = true;
     const check = async () => {
       if (inFlight) return;
@@ -286,7 +315,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           void run();
         }
       } catch {
-        // 还没跑最新的 schema.sql（缺 worklog_head）时退回整份拉取
+        // 还没跑最新 schema.sql 时退回整份拉取
         headOk = false;
         void run();
       }
@@ -309,6 +338,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cloudScheduler.current = null;
     };
   }, [cloudSpace]);
+
+  const resolveCloudConflict = useCallback(
+    async (choice: 'local' | 'remote') => {
+      const conflict = cloudConflictRef.current;
+      if (!conflict) return;
+      try {
+        if (choice === 'local') {
+          const local = dataRef.current;
+          const res = await cloudPut(cloudSpace, local);
+          writeCloudConfig({ space: cloudSpace, lastJson: JSON.stringify(local), lastAt: res.updated_at });
+          setCloudStatus({ state: 'synced', at: res.updated_at });
+          toast('已保留本地版本');
+        } else {
+          writeCloudConfig({
+            space: cloudSpace,
+            lastJson: JSON.stringify(conflict.remoteData),
+            lastAt: conflict.remoteAt,
+          });
+          dataRef.current = conflict.remoteData;
+          setData(conflict.remoteData);
+          setCloudStatus({ state: 'synced', at: conflict.remoteAt });
+          toast('已使用云端版本');
+        }
+      } catch {
+        toast('处理冲突失败，稍后再试', 'warn');
+        return;
+      }
+      cloudConflictRef.current = null;
+      setCloudConflict(false);
+    },
+    [cloudSpace, toast]
+  );
 
   // 数据一变就交给同步层：有没有实质变化由它判断（刚被远端覆盖的不会回推）
   useEffect(() => {
@@ -485,6 +546,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       linkFile,
       unlinkFile,
       cloudLink: link,
+      cloudStatus,
+      cloudConflict,
+      resolveCloudConflict,
     }),
     [
       data,
@@ -507,6 +571,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       linkFile,
       unlinkFile,
       link,
+      cloudStatus,
+      cloudConflict,
+      resolveCloudConflict,
     ]
   );
 
