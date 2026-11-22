@@ -6,6 +6,31 @@ import { StatsPage } from './components/StatsPage';
 import { SettingsPage } from './components/SettingsPage';
 import { useReveal, useScrollFx } from './hooks/useScrollFx';
 
+function SyncConflictBar() {
+  const { cloudConflict, cloudConflictInfo, resolveCloudConflict } = useStore();
+  if (!cloudConflict) return null;
+  return (
+    <div className="sync-bar" role="alert">
+      <div className="sync-bar__text">
+        <strong>云端和本机数据不一致</strong>
+        {cloudConflictInfo ? (
+          <span>
+            云端 {cloudConflictInfo.remoteRecords} 条 · 本机 {cloudConflictInfo.localRecords} 条
+          </span>
+        ) : null}
+      </div>
+      <div className="sync-bar__actions">
+        <button type="button" className="btn btn--glass btn--sm" onClick={() => void resolveCloudConflict('remote')}>
+          使用云端
+        </button>
+        <button type="button" className="btn btn--clay btn--sm" onClick={() => void resolveCloudConflict('local')}>
+          保留本地
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const { data, toasts, dismissToast } = useStore();
   const [tab, setTab] = useState<TabKey>('log');
@@ -60,6 +85,7 @@ function Shell() {
       <Background />
       <ProgressRail />
       <TopBar innerRef={topbarRef} tab={tab} onTab={setTab} />
+      <SyncConflictBar />
       <main>
         {tab === 'log' ? <CalendarPage /> : null}
         {tab === 'stats' ? <StatsPage /> : null}

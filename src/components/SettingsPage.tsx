@@ -6,7 +6,7 @@ import { NumberField, Seg, Switch, Field } from './ui';
 import { downloadJSON, parseImport, readFileAsText } from '../lib/storage';
 
 export function SettingsPage() {
-  const { data, setSettings, replaceAll, toast, cloudLink, cloudStatus, cloudConflict, resolveCloudConflict } = useStore();
+  const { data, setSettings, replaceAll, toast, cloudLink, cloudStatus, cloudConflict, resolveCloudConflict, inspectCloud } = useStore();
   const { settings } = data;
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -100,6 +100,14 @@ export function SettingsPage() {
               </button>
             </div>
           </div>
+
+          {!cloudConflict ? (
+            <div className="sync-actions">
+              <button type="button" className="btn btn--glass btn--sm" onClick={() => void inspectCloud()}>
+                对照云端版本
+              </button>
+            </div>
+          ) : null}
 
           <div className="sync-status-line">
             {cloudStatus.state === 'synced' && cloudStatus.at

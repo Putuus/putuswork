@@ -72,7 +72,10 @@ interface StoreValue {
   cloudLink: string;
   cloudStatus: { state: 'idle' | 'syncing' | 'synced' | 'error' | 'conflict'; at: string | null };
   cloudConflict: boolean;
+  cloudConflictInfo: { localRecords: number; remoteRecords: number; remoteAt: string } | null;
   resolveCloudConflict: (choice: 'local' | 'remote') => Promise<void>;
+  /** 手动拉云端版本做对照；不自动覆盖 */
+  inspectCloud: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -102,6 +105,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     at: string | null;
   }>({ state: 'idle', at: null });
   const [cloudConflict, setCloudConflict] = useState(false);
+  const [cloudConflictInfo, setCloudConflictInfo] = useState<{
+    localRecords: number;
+    remoteRecords: number;
+    remoteAt: string;
+  } | null>(null);
   const cloudConflictRef = useRef<{ remoteData: AppData; remoteAt: string; legacy?: boolean } | null>(null);
   const cloudScheduler = useRef<(() => void) | null>(null);
   const link = useMemo(() => cloudLink(cloudSpace), [cloudSpace]);
@@ -249,6 +257,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // 旧客户端没有协议标记；本地也有数据时不能静默覆盖，交给用户选
           const legacyData = normalizeRemote(remote);
           cloudConflictRef.current = { remoteData: legacyData, remoteAt: remote.updated_at, legacy: true };
+          setCloudConflictInfo({ localRecords: dataRef.current.records.length, remoteRecords: legacyData.records.length, remoteAt: remote.updated_at });
           if (alive) {
             setCloudConflict(true);
             setCloudStatus({ state: 'conflict', at: remote.updated_at });
@@ -280,6 +289,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const remoteChanged = !cfg.lastAt || remote.updated_at !== cfg.lastAt;
         if ((neverSynced || remoteChanged) && dirty && remoteJson !== localJson) {
           cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at };
+          setCloudConflictInfo({ localRecords: dataRef.current.records.length, remoteRecords: remoteData.records.length, remoteAt: remote.updated_at });
           if (alive) {
             setCloudConflict(true);
             setCloudStatus({ state: 'conflict', at: remote.updated_at });
@@ -310,6 +320,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           } else {
             // 两边都没有可靠的内容时间：不猜，交给用户选
             cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at };
+            setCloudConflictInfo({ localRecords: dataRef.current.records.length, remoteRecords: remoteData.records.length, remoteAt: remote.updated_at });
             if (alive) {
               setCloudConflict(true);
               setCloudStatus({ state: 'conflict', at: remote.updated_at });
@@ -374,6 +385,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [cloudSpace, toast]);
 
+  const inspectCloud = useCallback(async () => {
+    if (cloudConflictRef.current) return;
+    setCloudStatus({ state: 'syncing', at: null });
+    try {
+      const remote = await cloudGet(cloudSpace);
+      if (!remote) {
+        setCloudStatus({ state: 'idle', at: null });
+        toast('云端还没有数据', 'warn');
+        return;
+      }
+      const rawProtocol = (remote.payload as { syncProtocol?: number } | null)?.syncProtocol;
+      const remoteData = normalizeRemote(remote);
+      cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at, legacy: rawProtocol !== 2 };
+      setCloudConflictInfo({
+        localRecords: dataRef.current.records.length,
+        remoteRecords: remoteData.records.length,
+        remoteAt: remote.updated_at,
+      });
+      setCloudConflict(true);
+      setCloudStatus({ state: 'conflict', at: remote.updated_at });
+      toast('已读取云端版本，选择保留哪边', 'warn');
+    } catch {
+      setCloudStatus({ state: 'error', at: null });
+      toast('读取云端失败，稍后再试', 'warn');
+    }
+  }, [cloudSpace, toast]);
+
   const resolveCloudConflict = useCallback(
     async (choice: 'local' | 'remote') => {
       const conflict = cloudConflictRef.current;
@@ -412,6 +450,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       cloudConflictRef.current = null;
       setCloudConflict(false);
+      setCloudConflictInfo(null);
     },
     [cloudSpace, toast]
   );
@@ -593,7 +632,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cloudLink: link,
       cloudStatus,
       cloudConflict,
+      cloudConflictInfo,
       resolveCloudConflict,
+      inspectCloud,
     }),
     [
       data,
@@ -618,7 +659,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       link,
       cloudStatus,
       cloudConflict,
+      cloudConflictInfo,
       resolveCloudConflict,
+      inspectCloud,
     ]
   );
 
