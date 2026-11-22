@@ -402,7 +402,6 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
   filter: grayscale(1) contrast(1.08);
   opacity: 0.9;
   z-index: 0;
-  transition: transform 260ms var(--ease-out);
   will-change: transform;
 }
 .hero__panel-shade {
@@ -410,8 +409,8 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
   inset: 0;
   z-index: 1;
   background:
-    linear-gradient(180deg, rgba(5, 5, 22, 0.1) 0%, rgba(5, 5, 22, 0.25) 45%, rgba(5, 5, 22, 0.94) 100%),
-    linear-gradient(90deg, rgba(5, 5, 22, 0.55) 0%, rgba(5, 5, 22, 0) 65%);
+    linear-gradient(180deg, rgba(5, 5, 22, 0.1) 0%, rgba(5, 5, 22, 0.28) 42%, rgba(5, 5, 22, 0.97) 100%),
+    linear-gradient(90deg, rgba(5, 5, 22, 0.62) 0%, rgba(5, 5, 22, 0) 68%);
 }
 .hero__panel-body {
   position: relative;
@@ -442,7 +441,7 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
   letter-spacing: -0.015em;
   color: #fff;
   text-align: left;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8);
 }
 .hero__v small { font-family: var(--font-mono); font-size: 16px; font-weight: 400; opacity: 0.7; margin-left: 6px; }
 .hero__cur { font-family: var(--font-display); font-size: 30px; font-weight: 300; opacity: 0.78; margin-right: 5px; }
@@ -468,10 +467,10 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .hero__stat:first-child { border-left: 0; }
 .hero__stat-k {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.13em;
-  color: var(--ink-3);
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
 }
 .hero__stat-v {
   display: inline-flex;
@@ -480,7 +479,7 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
   gap: 3px;
   min-width: 0;
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 400;
   line-height: 1;
   color: var(--ink-1);
@@ -488,7 +487,7 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
 }
 .hero__stat-v small {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--ink-3);
 }
@@ -498,31 +497,43 @@ a:hover { text-decoration-thickness: 1px; text-underline-offset: 3px; }
   font-style: normal;
   font-weight: 500;
   color: var(--ink-4);
-  margin-left: 2px;
+  margin-left: 6px;
 }
 .hero__stat-empty { color: var(--ink-4); }
 .hero__stat-v--meal { gap: 2px; }
+.hero__meal-display {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+}
+.hero__meal-display:hover { color: var(--blue-ink); }
 .hero__meal-cur {
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 400;
   line-height: 1;
   color: var(--ink-1);
 }
 .hero__meal-input {
-  width: 86px;
+  width: 80px;
   height: 30px;
-  padding: 0 1px 2px;
+  padding: 0 0 2px;
   border: 0;
-  border-bottom: 1px solid transparent;
+  border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
   color: var(--ink-1);
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 400;
   line-height: 1;
-  text-align: center;
+  text-align: left;
   cursor: text;
 }
 .hero__meal-input::placeholder { color: var(--ink-4); }
@@ -782,9 +793,10 @@ html[data-theme="dark"] .art-rail .art-dark { display: block; }
   .hero__stat { min-height: 64px; padding: 9px 8px; }
   .hero__stat:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
   .hero__stat:nth-child(4) { border-top: 1px solid var(--line); }
-  .hero__stat-v { font-size: 23px; }
-  .hero__meal-cur { font-size: 21px; }
-  .hero__meal-input { width: 72px; height: 26px; font-size: 21px; }
+  .hero__stat-v { font-size: 24px; }
+  .hero__meal-display { font-size: 24px; }
+  .hero__meal-cur { font-size: 24px; }
+  .hero__meal-input { width: 72px; height: 28px; font-size: 24px; }
   .calendar { padding: 0; }
   .cal__head { top: var(--topbar-h, 60px); gap: 1px; padding: 8px 0; }
   .cal__head span { font-size: 9px; letter-spacing: 0.04em; }

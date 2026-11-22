@@ -15,6 +15,7 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
   const shown = settings.showIncome;
   const monthKey = stats.y + '-' + String(stats.m + 1).padStart(2, '0');
   const [mealText, setMealText] = useState(stats.meal > 0 ? String(stats.meal) : '');
+  const [editingMeal, setEditingMeal] = useState(false);
   const panelsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -59,6 +60,7 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
     const value = Number.isFinite(n) && n > 0 ? Math.min(100000, Math.round(n * 100) / 100) : 0;
     setMonthMeal(monthKey, value || null);
     setMealText(value > 0 ? String(value) : '');
+    setEditingMeal(false);
   };
 
   const best = stats.bestDay;
@@ -132,7 +134,7 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
               <>
                 {best.hours}
                 <small>h</small>
-                <em>{best.iso.slice(5).replace('-', '/')}</em>
+                <em>· {best.iso.slice(5).replace('-', '/')}</em>
               </>
             ) : (
               <span className="hero__stat-empty">—</span>
@@ -140,28 +142,44 @@ export function SummaryHero({ stats }: { stats: MonthStats }) {
           </span>
         </div>
 
-        <label className="hero__stat hero__stat--meal">
+        <div className="hero__stat hero__stat--meal">
           <span className="hero__stat-k">本月饭补</span>
-          <span className="hero__stat-v hero__stat-v--meal">
-            <span className="hero__meal-cur">{settings.currency}</span>
-            <input
-              className="hero__meal-input"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step="0.01"
-              value={mealText}
-              placeholder="0"
-              aria-label="本月饭补"
-              onChange={(e) => setMealText(e.target.value)}
-              onFocus={(e) => e.currentTarget.select()}
-              onBlur={commitMeal}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
+          {editingMeal ? (
+            <span className="hero__stat-v hero__stat-v--meal">
+              <span className="hero__meal-cur">{settings.currency}</span>
+              <input
+                className="hero__meal-input"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                autoFocus
+                value={mealText}
+                placeholder="0"
+                aria-label="本月饭补"
+                onChange={(e) => setMealText(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={commitMeal}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                }}
+              />
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="hero__stat-v hero__meal-display"
+              onClick={() => {
+                setMealText(stats.meal > 0 ? String(stats.meal) : '');
+                setEditingMeal(true);
               }}
-            />
-          </span>
-        </label>
+              aria-label="填写本月饭补"
+            >
+              {settings.currency}
+              {stats.meal > 0 ? money(stats.meal) : '0'}
+            </button>
+          )}
+        </div>
       </div>
 
     </section>
