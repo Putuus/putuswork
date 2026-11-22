@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { emptyData, type AppData, type Settings, type WorkRecord } from './types';
+import type { AppData, Settings, WorkRecord } from './types';
 import {
   loadData,
   saveData,
@@ -21,21 +21,10 @@ import {
   ensurePermission,
   pickSaveFile,
   pickOpenFile,
-  pushBackup,
-  latestBackup,
   mergeInto,
   type FSFileHandle,
 } from './lib/storage';
 import { runStartup } from './lib/startup';
-import {
-  defaultSyncConfig,
-  isSyncConfigured,
-  loadSyncConfig,
-  saveSyncConfig,
-  type SyncConfig,
-  type SyncController,
-  type SyncStatus,
-} from './lib/sync';
 import {
   cloudGet,
   cloudHead,
@@ -71,8 +60,6 @@ interface StoreValue {
   batchApply: (dates: string[], patch: BatchPatch) => void;
   replaceAll: (next: AppData) => void;
   mergeAll: (next: AppData) => { added: number; skipped: number };
-  resetAll: () => void;
-  restoreLastBackup: () => boolean;
   toasts: Toast[];
   toast: (text: string, kind?: 'ok' | 'warn') => void;
   dismissToast: (id: string) => void;
@@ -81,15 +68,6 @@ interface StoreValue {
   fileLinked: boolean;
   linkFile: () => Promise<void>;
   unlinkFile: () => Promise<void>;
-  /** 云同步：配置、状态与手动操作（未配置时 syncNow / syncTest 不发任何请求） */
-  syncConfig: SyncConfig;
-  syncStatus: SyncStatus;
-  updateSyncConfig: (patch: Partial<Pick<SyncConfig, 'token' | 'owner' | 'repo' | 'path'>>) => void;
-  resetSyncConfig: () => void;
-  syncNow: () => Promise<void>;
-  syncTest: () => Promise<{ ok: boolean; message: string }>;
-  /** 有覆盖风险时用户拍板：'remote' 用云端覆盖本地，'local' 用本地覆盖云端 */
-  resolveSyncConflict: (choice: 'remote' | 'local') => Promise<void>;
   /** 第一台设备生成的同步链接；新设备打开一次就绑定 */
   cloudLink: string;
 }
@@ -102,15 +80,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [fileHandle, setFileHandle] = useState<FSFileHandle | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileLinked, setFileLinked] = useState(false);
-  const [syncConfig, setSyncConfig] = useState<SyncConfig>(() => loadSyncConfig());
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() =>
-    isSyncConfigured(loadSyncConfig())
-      ? { state: 'idle', at: null, message: '等待同步' }
-      : { state: 'off', at: null, message: '未开启云同步' }
-  );
   /** 同步层始终读最新的数据（不能拿渲染那一刻的闭包快照） */
   const dataRef = useRef<AppData>(data);
-  const syncRef = useRef<SyncController | null>(null);
   const timers = useRef<number[]>([]);
   const [cloudSpace] = useState<string>(() => ensureCloudSpace());
   const cloudScheduler = useRef<(() => void) | null>(null);
@@ -130,11 +101,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // 主存储：localStorage（防抖写入）+ 每次改动前把上一版留进轮转备份
-  const prevJsonRef = useRef<string>('');
   useEffect(() => {
-    const json = JSON.stringify(data);
-    if (prevJsonRef.current && prevJsonRef.current !== json) pushBackup(prevJsonRef.current);
-    prevJsonRef.current = json;
     const t = window.setTimeout(() => {
       if (!saveData(data)) toast('保存失败：浏览器存储写不进去了（可能满了或处于隐私模式）', 'warn');
     }, 180);
@@ -346,7 +313,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // 数据一变就交给同步层：有没有实质变化由它判断（刚被远端覆盖的不会回推）
   useEffect(() => {
     dataRef.current = data;
-    if (syncRef.current) syncRef.current.schedule(data);
     cloudScheduler.current?.();
   }, [data]);
 
@@ -460,62 +426,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [data]
   );
-  const resetAll = useCallback(() => setData(emptyData()), []);
-
-  /** 恢复到上一份自动备份（恢复前先把当前数据也存一份，防止后悔） */
-  const restoreLastBackup = useCallback(() => {
-    const bk = latestBackup();
-    if (!bk) return false;
-    pushBackup(JSON.stringify(data));
-    setData(bk.data);
-    return true;
-  }, [data]);
-
-  /** 改同步配置：owner/repo/path 换地方后，旧 sha 与基线就作废了 */
-  const updateSyncConfig = useCallback(
-    (patch: Partial<Pick<SyncConfig, 'token' | 'owner' | 'repo' | 'path'>>) => {
-      const prev = loadSyncConfig();
-      const next: SyncConfig = Object.assign({}, prev, patch);
-      const moved =
-        (patch.owner !== undefined && patch.owner !== prev.owner) ||
-        (patch.repo !== undefined && patch.repo !== prev.repo) ||
-        (patch.path !== undefined && patch.path !== prev.path);
-      if (moved) {
-        next.lastSha = null;
-        next.baseUpdatedAt = null;
-        next.base = null; // 换了仓库，旧仓库的快照没意义
-        // 旧仓库的冲突快照不能拿来合新仓库
-        syncRef.current?.dropConflict();
-      }
-      saveSyncConfig(next);
-      setSyncConfig(next);
-      // 这里不自动发起同步：配置是逐字输入的，token 还没输完就请求只会换来一个 401。
-      // 首次上传靠设置页的「立即同步」，或者下一次改动（8 秒防抖那趟会带上全量数据）。
-    },
-    []
-  );
-
-  const resetSyncConfig = useCallback(() => {
-    syncRef.current?.dropConflict();
-    const next = defaultSyncConfig();
-    saveSyncConfig(next);
-    setSyncConfig(next);
-    setSyncStatus({ state: 'off', at: null, message: '未开启云同步' });
-  }, []);
-
-  const syncNow = useCallback(async () => {
-    await syncRef.current?.syncNow();
-  }, []);
-
-  const resolveSyncConflict = useCallback(async (choice: 'remote' | 'local') => {
-    await syncRef.current?.resolveConflict(choice);
-  }, []);
-
-  const syncTest = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
-    if (!syncRef.current) return { ok: false, message: '同步层还没准备好' };
-    return syncRef.current.testConnection();
-  }, []);
-
   const linkFile = useCallback(async () => {
     // 已有句柄就直接续期权限
     if (fileHandle) {
@@ -566,8 +476,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       batchApply,
       replaceAll,
       mergeAll,
-      resetAll,
-      restoreLastBackup,
       toasts,
       toast,
       dismissToast,
@@ -576,13 +484,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       fileLinked,
       linkFile,
       unlinkFile,
-      syncConfig,
-      syncStatus,
-      updateSyncConfig,
-      resetSyncConfig,
-      syncNow,
-      syncTest,
-      resolveSyncConflict,
       cloudLink: link,
     }),
     [
@@ -597,8 +498,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       batchApply,
       replaceAll,
       mergeAll,
-      resetAll,
-      restoreLastBackup,
       toasts,
       toast,
       dismissToast,
@@ -607,13 +506,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       fileLinked,
       linkFile,
       unlinkFile,
-      syncConfig,
-      syncStatus,
-      updateSyncConfig,
-      resetSyncConfig,
-      syncNow,
-      syncTest,
-      resolveSyncConflict,
       link,
     ]
   );

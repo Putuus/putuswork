@@ -20,7 +20,7 @@ import { DayDrawer } from './DayDrawer';
 import { BatchBar } from './BatchBar';
 import { useKeys } from '../hooks/useScrollFx';
 import { CheckIcon } from './ui';
-import { dayMark } from '../lib/holidays';
+import { loadHolidayYear, staticYearMarks, type DayMark } from '../lib/holidays';
 import { buildCSV, downloadCanvasPNG, downloadTextFile, renderMonthReport } from '../lib/exporters';
 
 export function CalendarPage() {
@@ -29,6 +29,19 @@ export function CalendarPage() {
 
   const today = todayISO();
   const [cursor, setCursor] = useState(() => ({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) - 1 }));
+
+  const [holidayMarks, setHolidayMarks] = useState<Record<string, DayMark>>(() => staticYearMarks(cursor.y));
+
+  useEffect(() => {
+    let alive = true;
+    setHolidayMarks(staticYearMarks(cursor.y));
+    void loadHolidayYear(cursor.y).then((marks) => {
+      if (alive) setHolidayMarks(marks);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [cursor.y]);
   const [openISO, setOpenISO] = useState<string | null>(null);
   const [batch, setBatch] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
@@ -272,7 +285,7 @@ export function CalendarPage() {
           <div className="cal__grid">
             {cells.map((c) => {
               const h = hoursByDate.get(c.iso) || 0;
-              const mark = dayMark(c.iso);
+              const mark = holidayMarks[c.iso] || null;
               const cls = ['cell', 'h-item'];
               if (!c.inMonth) cls.push('is-out');
               if (mark && mark.kind === 'holiday') cls.push('is-holiday');
