@@ -75,6 +75,7 @@ export function normalize(input: Partial<AppData> | null | undefined): AppData {
   }
   const out: AppData = { version: DATA_VERSION, settings, records, meals };
   if (input.monthMeals !== undefined) out.monthMeals = monthMeals;
+  if (typeof input.updatedAt === 'string' && input.updatedAt) out.updatedAt = input.updatedAt;
   return out;
 }
 

@@ -38,6 +38,8 @@ export interface AppData {
   meals: Record<string, number>;
   /** 按月饭补：{ '2025-10': 300 }，月底直接填总数 */
   monthMeals?: Record<string, number>;
+  /** 本机内容最后一次被用户修改的时间；用于判断数据新旧，不跟服务器写入时间混用 */
+  updatedAt?: string;
 }
 
 export const MEAL_MIN = 1;

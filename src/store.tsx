@@ -79,6 +79,16 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => loadData());
+  /**
+   * 所有“用户改数据”的入口都走这里，给内容盖上本机修改时间。
+   * 远端拉回来的数据用 setData 原样放回，不盖时间，否则会被误判成本地新改动。
+   */
+  const commit = useCallback((next: AppData | ((prev: AppData) => AppData)) => {
+    setData((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      return Object.assign({}, value, { updatedAt: new Date().toISOString() });
+    });
+  }, []);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [fileHandle, setFileHandle] = useState<FSFileHandle | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -242,6 +252,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
         const remoteData = normalizeRemote(remote);
         const remoteJson = JSON.stringify(remoteData);
+        const localUpdatedAt = Date.parse(local.updatedAt || '') || 0;
+        const remoteUpdatedAt = Date.parse(remoteData.updatedAt || '') || 0;
 
         // 新设备 + 空本地：直接采用云端
         if (brandNew) {
@@ -275,14 +287,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // 本地干净：采用云端新快照
+        // 本地干净但内容不同：用内容修改时间判断谁更新
         if (remoteJson !== localJson) {
-          if (JSON.stringify(dataRef.current) !== localJson) return;
-          writeCloudConfig({ space: cloudSpace, lastJson: remoteJson, lastAt: remote.updated_at });
-          if (alive) {
-            dataRef.current = remoteData;
-            setData(remoteData);
-            markSynced();
+          if (remoteUpdatedAt > localUpdatedAt) {
+            if (JSON.stringify(dataRef.current) !== localJson) return;
+            writeCloudConfig({ space: cloudSpace, lastJson: remoteJson, lastAt: remote.updated_at });
+            if (alive) {
+              dataRef.current = remoteData;
+              setData(remoteData);
+              markSynced();
+            }
+          } else if (localUpdatedAt > remoteUpdatedAt) {
+            // 本机内容比云端新（例如云端被旧设备写成旧快照）：把本机推回去
+            await pushLocal(local, localJson);
+          } else {
+            // 两边都没有可靠的内容时间：不猜，交给用户选
+            cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at };
+            if (alive) {
+              setCloudConflict(true);
+              setCloudStatus({ state: 'conflict', at: remote.updated_at });
+              toast('云端和本地都有自己的数据，去设置里选择保留哪边', 'warn');
+            }
           }
         } else {
           writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: remote.updated_at });
@@ -348,8 +373,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!conflict) return;
       try {
         if (choice === 'local') {
-          const local = dataRef.current;
+          // 用户明确选本地时，给内容盖一个当前时间再推，确保其他设备知道这是更新的版本
+          const local = Object.assign({}, dataRef.current, { updatedAt: new Date().toISOString() });
           const res = await cloudPut(cloudSpace, local);
+          dataRef.current = local;
+          setData(local);
           writeCloudConfig({ space: cloudSpace, lastJson: JSON.stringify(local), lastAt: res.updated_at });
           setCloudStatus({ state: 'synced', at: res.updated_at });
           toast('已保留本地版本');
@@ -381,12 +409,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   const setSettings = useCallback((patch: Partial<Settings>) => {
-    setData((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, patch) }));
-  }, []);
+    commit((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, patch) }));
+  }, [commit]);
 
   const setDayHours = useCallback((iso: string, hours: number) => {
     const value = Math.max(0, Math.min(24, Math.round(hours * 100) / 100));
-    setData((prev) => {
+    commit((prev) => {
       const mine = prev.records.filter((r) => r.date === iso);
       if (value <= 0) {
         return Object.assign({}, prev, { records: prev.records.filter((r) => r.date !== iso) });
@@ -406,47 +434,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       return Object.assign({}, prev, { records });
     });
-  }, []);
+  }, [commit]);
 
   const addRecord = useCallback((iso: string, patch?: Partial<WorkRecord>) => {
-    setData((prev) => {
+    commit((prev) => {
       const rec: WorkRecord = Object.assign(
         { id: uid(), date: iso, hours: 8, rate: null, note: '' },
         patch || {}
       );
       return Object.assign({}, prev, { records: prev.records.concat([rec]) });
     });
-  }, []);
+  }, [commit]);
 
   const updateRecord = useCallback((id: string, patch: Partial<WorkRecord>) => {
-    setData((prev) =>
+    commit((prev) =>
       Object.assign({}, prev, {
         records: prev.records.map((r) => (r.id === id ? Object.assign({}, r, patch) : r)),
       })
     );
-  }, []);
+  }, [commit]);
 
   const removeRecord = useCallback((id: string) => {
-    setData((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.id !== id) }));
-  }, []);
+    commit((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.id !== id) }));
+  }, [commit]);
 
   const clearDay = useCallback((iso: string) => {
-    setData((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.date !== iso) }));
-  }, []);
+    commit((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.date !== iso) }));
+  }, [commit]);
 
   const setMonthMeal = useCallback((month: string, value: number | null) => {
-    setData((prev) => {
+    commit((prev) => {
       const monthMeals = Object.assign({}, prev.monthMeals);
       if (value === null || !Number.isFinite(value) || value <= 0) delete monthMeals[month];
       else monthMeals[month] = Math.min(100000, Math.round(value * 100) / 100);
       return Object.assign({}, prev, { monthMeals });
     });
-  }, []);
+  }, [commit]);
 
   /** 批量：把工时/备注一次性套用到选中的每一天 */
   const batchApply = useCallback((dates: string[], patch: BatchPatch) => {
     if (dates.length === 0) return;
-    setData((prev) => {
+    commit((prev) => {
       let records = prev.records.slice();
 
       if (typeof patch.hours === 'number' && Number.isFinite(patch.hours)) {
@@ -477,18 +505,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       return Object.assign({}, prev, { records });
     });
-  }, []);
+  }, [commit]);
 
-  const replaceAll = useCallback((next: AppData) => setData(next), []);
+  const replaceAll = useCallback((next: AppData) => commit(next), [commit]);
 
   /** 合并导入：保留现有数据，只把新的补进来 */
   const mergeAll = useCallback(
     (next: AppData) => {
       const result = mergeInto(data, next);
-      setData(result.data);
+      commit(result.data);
       return { added: result.added, skipped: result.skipped };
     },
-    [data]
+    [data, commit]
   );
   const linkFile = useCallback(async () => {
     // 已有句柄就直接续期权限
