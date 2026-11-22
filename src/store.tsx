@@ -43,7 +43,6 @@ import {
   cloudLink,
   cloudPut,
   ensureCloudSpace,
-  mergeCloud,
   normalizeRemote,
   readCloudConfig,
   writeCloudConfig,
@@ -207,7 +206,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, [toast]);
 
-  // Supabase 自动同步：本地优先，启动拉一次，改动后 1.4s 合并推送
+  // Supabase 自动同步：本地有改动就整份快照推上去，干净时才拉云端。
+  // 不做按 id 的并集合并：并集会把刚删掉的记录从云端捞回来，也会让编辑看起来“自己弹回去”。
   useEffect(() => {
     let alive = true;
     let timer = 0;
@@ -217,37 +217,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!alive || inFlight) return;
       inFlight = true;
       try {
-        const remote = await cloudGet(cloudSpace);
+        const cfg = readCloudConfig() || { space: cloudSpace, lastJson: '', lastAt: '' };
         const local = dataRef.current;
         const localJson = JSON.stringify(local);
-        const cfg = readCloudConfig() || { space: cloudSpace, lastJson: '', lastAt: '' };
+        const localEmpty = local.records.length === 0 && Object.keys(local.meals).length === 0;
+        const dirty = localJson !== cfg.lastJson;
+        const brandNew = !cfg.lastJson && localEmpty;
 
+        // 这台设备有未同步的改动（新增 / 编辑 / 删除都算）：整份推本地
+        if (!brandNew && dirty) {
+          const res = await cloudPut(cloudSpace, local);
+          if (alive) {
+            writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+          }
+          return;
+        }
+
+        const remote = await cloudGet(cloudSpace);
         if (!remote) {
           const res = await cloudPut(cloudSpace, local);
-          if (alive) writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+          if (alive) {
+            writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+          }
           return;
         }
 
         const remoteData = normalizeRemote(remote);
         const remoteJson = JSON.stringify(remoteData);
-        const localEmpty = local.records.length === 0 && Object.keys(local.meals).length === 0;
-        const clean = cfg.lastJson === localJson;
-        const merged = localEmpty
-          ? remoteData
-          : mergeCloud(local, remote, clean ? cfg.lastAt || '' : new Date().toISOString());
-        const mergedJson = JSON.stringify(merged);
 
-        if (alive && mergedJson !== localJson) {
-          dataRef.current = merged;
-          setData(merged);
-        }
+        // 拉取期间用户又改了：丢掉这次结果，交给下一轮推本地
+        if (JSON.stringify(dataRef.current) !== localJson) return;
 
-        let at = remote.updated_at;
-        if (mergedJson !== remoteJson) {
-          const res = await cloudPut(cloudSpace, merged);
-          at = res.updated_at;
+        if (remoteJson !== localJson) {
+          writeCloudConfig({ space: cloudSpace, lastJson: remoteJson, lastAt: remote.updated_at });
+          if (alive) {
+            dataRef.current = remoteData;
+            setData(remoteData);
+          }
+        } else {
+          writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: remote.updated_at });
         }
-        if (alive) writeCloudConfig({ space: cloudSpace, lastJson: mergedJson, lastAt: at });
       } catch {
         /* 断网/代理失败：保持本地，下次改动或重开再试 */
       } finally {
