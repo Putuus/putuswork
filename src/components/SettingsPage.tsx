@@ -109,14 +109,14 @@ export function SettingsPage() {
                 : cloudStatus.state === 'error'
                   ? '同步失败，稍后自动重试'
                   : cloudStatus.state === 'conflict'
-                    ? '云端也有改动'
+                    ? '云端数据和本地不一致'
                     : '等待同步'}
           </div>
 
           {cloudConflict ? (
             <div className="row sync-conflict">
               <div className="row__label">
-                <strong>云端和本地都有新改动</strong>
+                <strong>云端已有数据，和本地不一致</strong>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="btn btn--glass btn--sm" onClick={() => void resolveCloudConflict('remote')}>

@@ -255,14 +255,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // 本地有改动，同时云端在“上次同步之后”也变了：不自动覆盖，停下来等选择
+        // 本地有改动，且云端在“上次同步之后”也变了；或这台设备还没同步过但云端已有数据：
+        // 都不自动覆盖，停下来让用户选。手机第一次打开旧的本地数据不会再静默盖掉电脑的新数据。
+        const neverSynced = !cfg.lastJson;
         const remoteChanged = !!cfg.lastAt && remote.updated_at !== cfg.lastAt;
-        if (dirty && remoteChanged && remoteJson !== localJson) {
+        if ((neverSynced || remoteChanged) && dirty && remoteJson !== localJson) {
           cloudConflictRef.current = { remoteData, remoteAt: remote.updated_at };
           if (alive) {
             setCloudConflict(true);
             setCloudStatus({ state: 'conflict', at: remote.updated_at });
-            toast('云端也有改动，去设置里选择保留哪边', 'warn');
+            toast('云端已有数据，去设置里选择保留哪边', 'warn');
           }
           return;
         }
