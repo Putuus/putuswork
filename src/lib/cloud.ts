@@ -7,6 +7,7 @@ import { mergeWorklog } from './sync';
 const SUPABASE_URL = 'https://zpqpkqisdzhsnmoyuztd.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_hjgOgXzKeZx_AHobhTzPAw_lOtOEoDA';
 const CONFIG_KEY = 'worklog:cloud';
+const SYNC_PROTOCOL = 2;
 const SPACE_RE = /^[a-f0-9]{32}$/i;
 
 export interface CloudConfig {
@@ -125,7 +126,11 @@ export async function cloudGet(space: string): Promise<CloudRemote | null> {
 }
 
 export async function cloudPut(space: string, data: AppData): Promise<{ ok: boolean; updated_at: string }> {
-  return rpc<{ ok: boolean; updated_at: string }>('worklog_put', { p_space: space, p_payload: data });
+  // 旧客户端没有 syncProtocol；新客户端整份快照带上它，服务端/其他新客户端可识别旧格式
+  return rpc<{ ok: boolean; updated_at: string }>('worklog_put', {
+    p_space: space,
+    p_payload: Object.assign({}, data, { syncProtocol: SYNC_PROTOCOL }),
+  });
 }
 
 /** 只取 updated_at 的轻量探针；正文只在真的有变化时才拉。 */

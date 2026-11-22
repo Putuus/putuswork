@@ -242,6 +242,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        const rawProtocol = (remote.payload as { syncProtocol?: number } | null)?.syncProtocol;
+        if (rawProtocol !== 2) {
+          // 旧版客户端推上来的快照没有 syncProtocol；它的按 id 合并会复活删除、回滚编辑。
+          // 新设备本地为空时只迁移一次；否则始终用本地整份快照覆盖它。
+          if (brandNew) {
+            const legacyData = normalizeRemote(remote);
+            const legacyJson = JSON.stringify(legacyData);
+            if (JSON.stringify(dataRef.current) !== localJson) return;
+            writeCloudConfig({ space: cloudSpace, lastJson: legacyJson, lastAt: remote.updated_at });
+            if (alive) {
+              dataRef.current = legacyData;
+              setData(legacyData);
+            }
+            const res = await cloudPut(cloudSpace, legacyData);
+            if (alive) writeCloudConfig({ space: cloudSpace, lastJson: legacyJson, lastAt: res.updated_at });
+            return;
+          }
+          const res = await cloudPut(cloudSpace, local);
+          if (alive) writeCloudConfig({ space: cloudSpace, lastJson: localJson, lastAt: res.updated_at });
+          return;
+        }
+
         const remoteData = normalizeRemote(remote);
         const remoteJson = JSON.stringify(remoteData);
 
