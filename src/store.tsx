@@ -102,7 +102,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     at: string | null;
   }>({ state: 'idle', at: null });
   const [cloudConflict, setCloudConflict] = useState(false);
-  const cloudConflictRef = useRef<{ remoteData: AppData; remoteAt: string } | null>(null);
+  const cloudConflictRef = useRef<{ remoteData: AppData; remoteAt: string; legacy?: boolean } | null>(null);
   const cloudScheduler = useRef<(() => void) | null>(null);
   const link = useMemo(() => cloudLink(cloudSpace), [cloudSpace]);
 
@@ -246,7 +246,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
             return;
           }
-          await pushLocal(local, localJson);
+          // 旧客户端没有协议标记；本地也有数据时不能静默覆盖，交给用户选
+          const legacyData = normalizeRemote(remote);
+          cloudConflictRef.current = { remoteData: legacyData, remoteAt: remote.updated_at, legacy: true };
+          if (alive) {
+            setCloudConflict(true);
+            setCloudStatus({ state: 'conflict', at: remote.updated_at });
+            toast('云端是旧版本写的数据，去设置里选择保留哪边', 'warn');
+          }
           return;
         }
 
@@ -382,14 +389,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setCloudStatus({ state: 'synced', at: res.updated_at });
           toast('已保留本地版本');
         } else {
+          let remoteData = conflict.remoteData;
+          let remoteAt = conflict.remoteAt;
+          if (conflict.legacy) {
+            // 旧格式采用后顺手升级成新协议，避免下次打开又提示冲突
+            const res = await cloudPut(cloudSpace, remoteData);
+            remoteAt = res.updated_at;
+          }
           writeCloudConfig({
             space: cloudSpace,
-            lastJson: JSON.stringify(conflict.remoteData),
-            lastAt: conflict.remoteAt,
+            lastJson: JSON.stringify(remoteData),
+            lastAt: remoteAt,
           });
-          dataRef.current = conflict.remoteData;
-          setData(conflict.remoteData);
-          setCloudStatus({ state: 'synced', at: conflict.remoteAt });
+          dataRef.current = remoteData;
+          setData(remoteData);
+          setCloudStatus({ state: 'synced', at: remoteAt });
           toast('已使用云端版本');
         }
       } catch {
