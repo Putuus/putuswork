@@ -26,7 +26,6 @@ import {
   mergeInto,
   type FSFileHandle,
 } from './lib/storage';
-import { clampMeal } from './lib/calc';
 import { runStartup } from './lib/startup';
 import {
   defaultSyncConfig,
@@ -56,7 +55,6 @@ export interface Toast {
 
 export interface BatchPatch {
   hours?: number;
-  meal?: number | null;
   note?: string;
 }
 
@@ -68,7 +66,8 @@ interface StoreValue {
   updateRecord: (id: string, patch: Partial<WorkRecord>) => void;
   removeRecord: (id: string) => void;
   clearDay: (iso: string) => void;
-  setMeal: (iso: string, value: number | null) => void;
+  /** 按月填饭补：month = 'YYYY-MM' */
+  setMonthMeal: (month: string, value: number | null) => void;
   batchApply: (dates: string[], patch: BatchPatch) => void;
   replaceAll: (next: AppData) => void;
   mergeAll: (next: AppData) => { added: number; skipped: number };
@@ -402,28 +401,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearDay = useCallback((iso: string) => {
+    setData((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.date !== iso) }));
+  }, []);
+
+  const setMonthMeal = useCallback((month: string, value: number | null) => {
     setData((prev) => {
-      const meals = Object.assign({}, prev.meals);
-      delete meals[iso];
-      return Object.assign({}, prev, { records: prev.records.filter((r) => r.date !== iso), meals });
+      const monthMeals = Object.assign({}, prev.monthMeals);
+      if (value === null || !Number.isFinite(value) || value <= 0) delete monthMeals[month];
+      else monthMeals[month] = Math.min(100000, Math.round(value * 100) / 100);
+      return Object.assign({}, prev, { monthMeals });
     });
   }, []);
 
-  const setMeal = useCallback((iso: string, value: number | null) => {
-    setData((prev) => {
-      const meals = Object.assign({}, prev.meals);
-      if (value === null || !Number.isFinite(value) || value <= 0) delete meals[iso];
-      else meals[iso] = clampMeal(value);
-      return Object.assign({}, prev, { meals });
-    });
-  }, []);
-
-  /** 批量：把工时/餐补/备注一次性套用到选中的每一天 */
+  /** 批量：把工时/备注一次性套用到选中的每一天 */
   const batchApply = useCallback((dates: string[], patch: BatchPatch) => {
     if (dates.length === 0) return;
     setData((prev) => {
       let records = prev.records.slice();
-      const meals = Object.assign({}, prev.meals);
 
       if (typeof patch.hours === 'number' && Number.isFinite(patch.hours)) {
         const hours = Math.max(0, Math.min(24, Math.round(patch.hours * 100) / 100));
@@ -451,14 +445,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      if (patch.meal !== undefined) {
-        for (const iso of dates) {
-          if (patch.meal === null || patch.meal <= 0) delete meals[iso];
-          else meals[iso] = clampMeal(patch.meal);
-        }
-      }
-
-      return Object.assign({}, prev, { records, meals });
+      return Object.assign({}, prev, { records });
     });
   }, []);
 
@@ -575,7 +562,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateRecord,
       removeRecord,
       clearDay,
-      setMeal,
+      setMonthMeal,
       batchApply,
       replaceAll,
       mergeAll,
@@ -606,7 +593,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateRecord,
       removeRecord,
       clearDay,
-      setMeal,
+      setMonthMeal,
       batchApply,
       replaceAll,
       mergeAll,

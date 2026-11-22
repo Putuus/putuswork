@@ -34,12 +34,14 @@ export interface AppData {
   version: number;
   settings: Settings;
   records: WorkRecord[];
-  /** 餐补按天记：{ '2025-10-08': 20 }，金额范围 1~100 */
+  /** 旧版按天餐补：{ '2025-10-08': 20 }；加载时会汇总进 monthMeals 并清空 */
   meals: Record<string, number>;
+  /** 按月饭补：{ '2025-10': 300 }，月底直接填总数 */
+  monthMeals?: Record<string, number>;
 }
 
 export const MEAL_MIN = 1;
-export const MEAL_MAX = 100;
+export const MEAL_MAX = 100000;
 export const DATA_VERSION = 1;
 
 export function defaultSettings(): Settings {
@@ -55,5 +57,5 @@ export function defaultSettings(): Settings {
 }
 
 export function emptyData(): AppData {
-  return { version: DATA_VERSION, settings: defaultSettings(), records: [], meals: {} };
+  return { version: DATA_VERSION, settings: defaultSettings(), records: [], meals: {}, monthMeals: {} };
 }

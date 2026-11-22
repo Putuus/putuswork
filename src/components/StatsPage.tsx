@@ -33,7 +33,7 @@ export function StatsPage() {
         <div className="stat-grid" data-reveal>
           <Stat k="本月工时" v={String(month.hours)} unit="h" />
           <Stat k="本月收入" v={settings.currency + money(month.income)} />
-          <Stat k="本月餐补" v={settings.currency + money(month.meal)} sub={month.mealDays + ' 天'} />
+          <Stat k="本月饭补" v={settings.currency + money(month.meal)} />
           <Stat k="本年累计" v={settings.currency + money(year.income)} sub={year.hours + ' h'} />
         </div>
 
@@ -81,7 +81,7 @@ export function StatsPage() {
                   </span>
                   <span>
                     <i style={{ background: 'var(--meal)' }} />
-                    餐补
+                    饭补
                   </span>
                 </span>
               </div>
@@ -134,7 +134,7 @@ export function StatsPage() {
                       <div className="tiny muted left" style={{ marginTop: 8 }}>
                         {settings.currency}
                         {money(t.income)}
-                        {t.meal > 0 ? ' · 餐补 ' + t.meal : ''}
+                        
                       </div>
                     </div>
                   ))
@@ -172,7 +172,6 @@ export function StatsPage() {
                       <span className="day-row__note">{row.note || '—'}</span>
                       <span className="day-row__h">
                         {row.hours} h
-                        {row.meal > 0 ? <span className="badge badge--meal" style={{ marginLeft: 8 }}>餐 {row.meal}</span> : null}
                       </span>
                       <span className="day-row__money">
                         {settings.currency}
@@ -191,7 +190,7 @@ export function StatsPage() {
             <div className="row__label">
               <strong>{monthLabel(y, m)}小结</strong>
               <div className="tiny muted">
-                出勤 {month.workDays} 天 · 平均每天 {month.avgHours} h · 餐补 {month.mealDays} 天
+                出勤 {month.workDays} 天 · 平均每天 {month.avgHours} h · 饭补 {settings.currency}{money(month.meal)}
               </div>
             </div>
             <div className="row__value num" style={{ color: 'var(--ink-1)', fontWeight: 700 }}>

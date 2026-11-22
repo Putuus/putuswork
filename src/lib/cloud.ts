@@ -1,7 +1,7 @@
 /** Supabase 同步：随机 space_id 当钥匙，不登录、不导入；本地优先，后台合并。 */
 
 import type { AppData } from '../types';
-import { normalize } from './storage';
+import { migrateMonthlyMeals, normalize } from './storage';
 import { mergeWorklog } from './sync';
 
 const SUPABASE_URL = 'https://zpqpkqisdzhsnmoyuztd.supabase.co';
@@ -141,7 +141,7 @@ export async function cloudHead(space: string): Promise<{ updated_at: string } |
 }
 
 export function normalizeRemote(remote: CloudRemote): AppData {
-  return normalize(remote.payload as Partial<AppData> | null);
+  return migrateMonthlyMeals(normalize(remote.payload as Partial<AppData> | null));
 }
 
 export function mergeCloud(local: AppData, remote: CloudRemote, localUpdatedAt: string): AppData {

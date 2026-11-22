@@ -5,7 +5,6 @@ import { useStore } from '../store';
 import { NumberField, Seg, Switch, Field } from './ui';
 import { backupKeys, downloadJSON, parseImport, readFileAsText, fsSupported } from '../lib/storage';
 import { isSyncConfigured } from '../lib/sync';
-import { MEAL_MAX } from '../types';
 
 export function SettingsPage() {
   const {
@@ -129,16 +128,6 @@ export function SettingsPage() {
                 max={100000}
                 suffix="元 / 小时"
                 ariaLabel="默认时薪"
-              />
-            </Field>
-            <Field label="默认餐补" hint={'点开某天的餐补开关时用这个数，范围 1~' + MEAL_MAX}>
-              <NumberField
-                value={settings.defaultMeal}
-                onChange={(v) => setSettings({ defaultMeal: v })}
-                min={0}
-                max={MEAL_MAX}
-                suffix="元 / 天"
-                ariaLabel="默认餐补"
               />
             </Field>
           </div>
@@ -323,7 +312,7 @@ export function SettingsPage() {
           <div className="row">
             <div className="row__label">
               <strong>清空所有数据</strong>
-              <div className="tiny muted">记录 {data.records.length} 条 · 餐补 {Object.keys(data.meals).length} 天</div>
+              <div className="tiny muted">记录 {data.records.length} 条</div>
             </div>
             <button
               type="button"

@@ -37,7 +37,6 @@ export function CalendarPage() {
   const [editingText, setEditingText] = useState('');
   const painting = useRef<boolean | null>(null);
   const lastPicked = useRef<string | null>(null);
-  const railRef = useRef<HTMLElement | null>(null);
 
   const stats = useMemo(() => monthStats(data, cursor.y, cursor.m), [data, cursor.y, cursor.m]);
   const cells = useMemo(() => monthMatrix(cursor.y, cursor.m, settings.weekStart), [cursor.y, cursor.m, settings.weekStart]);
@@ -63,28 +62,6 @@ export function CalendarPage() {
     };
     window.addEventListener('mouseup', up);
     return () => window.removeEventListener('mouseup', up);
-  }, []);
-
-  // 人物画跟随鼠标：只改 CSS 变量，不触发 React 重渲染
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      const el = railRef.current;
-      if (!el) return;
-      const x = e.clientX / window.innerWidth - 0.5;
-      const y = e.clientY / window.innerHeight - 0.5;
-      const cards = el.querySelectorAll<HTMLElement>('.art-rail__card');
-      cards.forEach((card, i) => {
-        const depth = i === 0 ? 1 : 1.6;
-        const tx = (x * -26 * depth).toFixed(1);
-        const ty = (y * -20 * depth).toFixed(1);
-        card.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
-          img.style.left = `${(-28 + Number(tx)).toFixed(1)}px`;
-          img.style.top = `${(-28 + Number(ty)).toFixed(1)}px`;
-        });
-      });
-    };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    return () => window.removeEventListener('pointermove', onMove);
   }, []);
 
   const togglePick = (iso: string, add: boolean) => {
@@ -295,7 +272,6 @@ export function CalendarPage() {
           <div className="cal__grid">
             {cells.map((c) => {
               const h = hoursByDate.get(c.iso) || 0;
-              const meal = data.meals[c.iso];
               const mark = dayMark(c.iso);
               const cls = ['cell', 'h-item'];
               if (!c.inMonth) cls.push('is-out');
@@ -308,8 +284,7 @@ export function CalendarPage() {
               const title =
                 c.iso +
                 (mark ? ' · ' + mark.name : '') +
-                (h > 0 ? ' · 工时 ' + h + ' 小时' : '') +
-                (meal ? ' · 餐补 ' + meal + ' 元' : '');
+                (h > 0 ? ' · 工时 ' + h + ' 小时' : '');
               const level = h >= 11 ? 3 : h >= 9 ? 2 : 1;
 
               // 就地输入时不能把 input 放进 button：button 里嵌交互元素是非法结构，而且点完焦点会被 button 抢走
@@ -340,7 +315,6 @@ export function CalendarPage() {
                         }
                       }}
                     />
-                    {meal ? <span className="cell__meal">餐 {meal}</span> : null}
                     {mark ? (
                       <span
                         className={
@@ -354,7 +328,7 @@ export function CalendarPage() {
                     <button
                       type="button"
                       className="cell__more"
-                      title="打开详情（餐补 / 记多条 / 备注）"
+                      title="打开详情（记多条 / 备注）"
                       aria-label="打开详情"
                       onMouseDown={(ev) => ev.preventDefault()}
                       onClick={() => {
@@ -393,7 +367,6 @@ export function CalendarPage() {
                 >
                   <span className="cell__d">{c.day}</span>
                   {h > 0 ? <span className="cell__h">{h}h</span> : null}
-                  {meal ? <span className="cell__meal">餐 {meal}</span> : null}
                   {mark ? (
                     <span
                       className={
@@ -442,7 +415,6 @@ export function CalendarPage() {
                       {settings.currency}
                       {money(row.income)}
                     </span>
-                    {row.meal > 0 ? <span className="badge badge--meal">餐补 {row.meal}</span> : null}
                   </span>
                   {row.note ? <span className="tiny muted left">{row.note}</span> : null}
                 </button>
@@ -461,16 +433,6 @@ export function CalendarPage() {
         </section>
       </div>
 
-      <aside className="art-rail" ref={railRef} aria-hidden="true">
-        <div className="art-rail__card">
-          <img className="art-light" src={import.meta.env.BASE_URL + 'print-putus-wide.webp'} alt="" />
-          <img className="art-dark" src={import.meta.env.BASE_URL + 'print-putus-wide-dark.webp'} alt="" />
-        </div>
-        <div className="art-rail__card">
-          <img className="art-light" src={import.meta.env.BASE_URL + 'print-blue-wide.webp'} alt="" />
-          <img className="art-dark" src={import.meta.env.BASE_URL + 'print-blue-wide-dark.webp'} alt="" />
-        </div>
-      </aside>
     </div>
 
       {openISO ? <DayDrawer iso={openISO} onClose={() => setOpenISO(null)} /> : null}

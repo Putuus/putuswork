@@ -23,6 +23,21 @@ export function wageOfDay(data: AppData, iso: string): number {
   return round2(sum);
 }
 
+
+/** 某个月的饭补总额；兼容未迁移的旧版按天 meals */
+export function mealOfMonth(data: AppData, y: number, m: number): number {
+  const key = y + '-' + String(m + 1).padStart(2, '0');
+  const v = data.monthMeals && data.monthMeals[key];
+  if (typeof v === 'number') return round2(v);
+  let sum = 0;
+  for (let d = 1; d <= 31; d++) {
+    const iso = key + '-' + String(d).padStart(2, '0');
+    const day = data.meals[iso];
+    if (typeof day === 'number') sum += day;
+  }
+  return round2(sum);
+}
+
 export function mealOfDay(data: AppData, iso: string): number {
   const v = data.meals[iso];
   return typeof v === 'number' ? v : 0;
@@ -53,9 +68,8 @@ export interface MonthStats {
 export function monthStats(data: AppData, y: number, m: number): MonthStats {
   let hours = 0;
   let wage = 0;
-  let meal = 0;
+  let meal = mealOfMonth(data, y, m);
   let workDays = 0;
-  let mealDays = 0;
   let best: { iso: string; hours: number } | null = null;
 
   for (const iso of monthDates(y, m)) {
@@ -66,16 +80,12 @@ export function monthStats(data: AppData, y: number, m: number): MonthStats {
       if (!best || h > best.hours) best = { iso, hours: h };
     }
     wage += wageOfDay(data, iso);
-    const mealV = mealOfDay(data, iso);
-    if (mealV > 0) {
-      mealDays++;
-      meal += mealV;
-    }
   }
 
   hours = round2(hours);
   wage = round2(wage);
   meal = round2(meal);
+  const mealDays = meal > 0 ? 1 : 0;
   return {
     y,
     m,

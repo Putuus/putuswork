@@ -95,7 +95,7 @@ export async function renderMonthReport(data: AppData, y: number, m: number): Pr
     ['本月工时', String(stats.hours) + ' h'],
     ['本月收入', '¥' + stats.income],
     ['出勤天数', String(stats.workDays) + ' 天'],
-    ['餐补', '¥' + stats.meal + '（' + stats.mealDays + ' 天）'],
+    ['本月饭补', '¥' + stats.meal],
   ];
   const gap = 20;
   const cw = (W - 200 - gap * 3) / 4;
@@ -173,7 +173,7 @@ export async function renderMonthReport(data: AppData, y: number, m: number): Pr
   const wage = round2(stats.wage);
   text(
     ctx,
-    '工时收入 ¥' + wage + ' ＋ 餐补 ¥' + stats.meal + ' ＝ ¥' + stats.income,
+    '工时收入 ¥' + wage + ' ＋ 饭补 ¥' + stats.meal + ' ＝ ¥' + stats.income,
     100,
     1160,
     '600 26px ' + FONT,
@@ -235,9 +235,9 @@ export function buildCSV(data: AppData): string {
   const rows = activeDays(data).slice().reverse();
   const week = ['日', '一', '二', '三', '四', '五', '六'];
   const lines: string[] = [];
-  lines.push(['日期', '星期', '工时', '时薪(元/小时)', '工时收入(元)', '餐补(元)', '当天合计(元)', '备注'].join(','));
+  lines.push(['日期', '星期', '工时', '时薪(元/小时)', '工时收入(元)', '饭补(元)', '当天合计(元)', '备注'].join(','));
 
-  const months = new Map<string, { hours: number; wage: number; meal: number; days: number }>();
+  const monthKeys = new Set<string>();
   for (const r of rows) {
     const d = new Date(Number(r.iso.slice(0, 4)), Number(r.iso.slice(5, 7)) - 1, Number(r.iso.slice(8, 10)));
     lines.push(
@@ -252,21 +252,17 @@ export function buildCSV(data: AppData): string {
         csvCell(r.note),
       ].join(',')
     );
-    const key = r.iso.slice(0, 7);
-    const agg = months.get(key) || { hours: 0, wage: 0, meal: 0, days: 0 };
-    agg.hours = round2(agg.hours + r.hours);
-    agg.wage = round2(agg.wage + r.wage);
-    agg.meal = round2(agg.meal + r.meal);
-    if (r.hours > 0) agg.days += 1;
-    months.set(key, agg);
+    monthKeys.add(r.iso.slice(0, 7));
   }
+  for (const key of Object.keys(data.monthMeals || {})) monthKeys.add(key);
 
   lines.push('');
-  lines.push(['月份', '出勤天数', '工时', '工时收入(元)', '餐补(元)', '合计(元)'].join(','));
-  for (const key of Array.from(months.keys()).sort()) {
-    const a = months.get(key);
-    if (!a) continue;
-    lines.push([key, String(a.days), String(a.hours), String(a.wage), String(a.meal), String(round2(a.wage + a.meal))].join(','));
+  lines.push(['月份', '出勤天数', '工时', '工时收入(元)', '饭补(元)', '合计(元)'].join(','));
+  for (const key of Array.from(monthKeys).sort()) {
+    const y = Number(key.slice(0, 4));
+    const m = Number(key.slice(5, 7)) - 1;
+    const a = monthStats(data, y, m);
+    lines.push([key, String(a.workDays), String(a.hours), String(a.wage), String(a.meal), String(a.income)].join(','));
   }
 
   return '\ufeff' + lines.join('\r\n');

@@ -13,7 +13,7 @@ export function loadData(): AppData {
   if (!raw) return emptyData();
   try {
     const parsed = JSON.parse(raw) as Partial<AppData>;
-    return normalize(parsed);
+    return migrateMonthlyMeals(normalize(parsed));
   } catch (err) {
     // 数据解析不了：先把原始字符串另存一份，再回退。
     // 绝不能让「空数据」把原来那份直接覆盖掉。
@@ -61,10 +61,34 @@ export function normalize(input: Partial<AppData> | null | undefined): AppData {
   if (input.meals && typeof input.meals === 'object') {
     for (const [k, v] of Object.entries(input.meals)) {
       const n = Number(v);
-      if (Number.isFinite(n) && n > 0) meals[k] = Math.min(100, Math.max(1, Math.round(n)));
+      if (Number.isFinite(n) && n > 0) meals[k] = Math.min(100000, Math.max(1, Math.round(n)));
     }
   }
-  return { version: DATA_VERSION, settings, records, meals };
+  const monthMeals: Record<string, number> = {};
+  if (input.monthMeals && typeof input.monthMeals === 'object') {
+    for (const [k, v] of Object.entries(input.monthMeals)) {
+      if (!/^\d{4}-\d{2}$/.test(k)) continue;
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) monthMeals[k] = Math.min(100000, Math.round(n * 100) / 100);
+    }
+  }
+  const out: AppData = { version: DATA_VERSION, settings, records, meals };
+  if (input.monthMeals !== undefined) out.monthMeals = monthMeals;
+  return out;
+}
+
+/** 把旧版按天 meals 汇总成按月 monthMeals；只在新版应用入口/云端解析时调用 */
+export function migrateMonthlyMeals(data: AppData): AppData {
+  const monthMeals: Record<string, number> = Object.assign({}, data.monthMeals);
+  let changed = false;
+  for (const [k, v] of Object.entries(data.meals)) {
+    const month = /^\d{4}-\d{2}-\d{2}$/.test(k) ? k.slice(0, 7) : /^\d{4}-\d{2}$/.test(k) ? k : '';
+    if (!month) continue;
+    monthMeals[month] = Math.min(100000, Math.round(((monthMeals[month] || 0) + Number(v)) * 100) / 100);
+    changed = true;
+  }
+  if (!changed && data.monthMeals) return data;
+  return Object.assign({}, data, { meals: {}, monthMeals });
 }
 
 export function uid(): string {
@@ -129,7 +153,7 @@ export function latestBackup(): { at: number; data: AppData } | null {
   try {
     const raw = localStorage.getItem(k);
     if (!raw) return null;
-    return { at: Number(k.slice(BACKUP_PREFIX.length)) || 0, data: normalize(JSON.parse(raw)) };
+    return { at: Number(k.slice(BACKUP_PREFIX.length)) || 0, data: migrateMonthlyMeals(normalize(JSON.parse(raw))) };
   } catch {
     return null;
   }
@@ -158,13 +182,17 @@ export function mergeInto(
   for (const [k, v] of Object.entries(incoming.meals)) {
     if (meals[k] === undefined) meals[k] = v;
   }
+  const monthMeals: Record<string, number> = Object.assign({}, current.monthMeals);
+  for (const [k, v] of Object.entries(incoming.monthMeals || {})) {
+    if (monthMeals[k] === undefined) monthMeals[k] = v;
+  }
   records.sort((a, b) => (a.date < b.date ? -1 : 1));
-  return { data: Object.assign({}, current, { records, meals }), added, skipped };
+  return { data: Object.assign({}, current, { records, meals, monthMeals }), added, skipped };
 }
 
 export function parseImport(text: string): AppData | null {
   try {
-    return normalize(JSON.parse(text) as Partial<AppData>);
+    return migrateMonthlyMeals(normalize(JSON.parse(text) as Partial<AppData>));
   } catch {
     return null;
   }
