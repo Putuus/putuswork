@@ -40,6 +40,7 @@ export interface Toast {
   id: string;
   text: string;
   kind: 'ok' | 'warn';
+  action?: { label: string; run: () => void };
 }
 
 export interface BatchPatch {
@@ -61,7 +62,7 @@ interface StoreValue {
   replaceAll: (next: AppData) => void;
   mergeAll: (next: AppData) => { added: number; skipped: number };
   toasts: Toast[];
-  toast: (text: string, kind?: 'ok' | 'warn') => void;
+  toast: (text: string, kind?: 'ok' | 'warn', action?: Toast['action']) => void;
   dismissToast: (id: string) => void;
   fileHandle: FSFileHandle | null;
   fileName: string | null;
@@ -114,14 +115,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const cloudScheduler = useRef<(() => void) | null>(null);
   const link = useMemo(() => cloudLink(cloudSpace), [cloudSpace]);
 
-  const toast = useCallback((text: string, kind: 'ok' | 'warn' = 'ok') => {
-    const id = uid();
-    setToasts((prev) => prev.concat([{ id, text, kind }]));
-    const t = window.setTimeout(() => {
-      setToasts((prev) => prev.filter((x) => x.id !== id));
-    }, 2600);
-    timers.current.push(t);
-  }, []);
+  const toast = useCallback(
+    (text: string, kind: 'ok' | 'warn' = 'ok', action?: Toast['action']) => {
+      const id = uid();
+      setToasts((prev) => prev.concat([{ id, text, kind, action }]));
+      const t = window.setTimeout(
+        () => {
+          setToasts((prev) => prev.filter((x) => x.id !== id));
+        },
+        action ? 6500 : 2600
+      );
+      timers.current.push(t);
+    },
+    []
+  );
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((x) => x.id !== id));
@@ -461,12 +468,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     cloudScheduler.current?.();
   }, [data]);
 
+
+  /** 删除类操作的撤销入口：先记下完整旧数据，点“撤销”就原样恢复 */
+  const undoable = useCallback(
+    (prev: AppData, text: string) => {
+      toast(text, 'ok', { label: '撤销', run: () => commit(prev) });
+    },
+    [commit, toast]
+  );
+
   const setSettings = useCallback((patch: Partial<Settings>) => {
     commit((prev) => Object.assign({}, prev, { settings: Object.assign({}, prev.settings, patch) }));
   }, [commit]);
 
   const setDayHours = useCallback((iso: string, hours: number) => {
     const value = Math.max(0, Math.min(24, Math.round(hours * 100) / 100));
+    const before = dataRef.current;
+    const had = before.records.some((r) => r.date === iso);
     commit((prev) => {
       const mine = prev.records.filter((r) => r.date === iso);
       if (value <= 0) {
@@ -487,7 +505,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       return Object.assign({}, prev, { records });
     });
-  }, [commit]);
+    if (value <= 0 && had) undoable(before, '已清空 ' + iso.slice(5).replace('-', '/') + ' 的工时');
+  }, [commit, undoable]);
 
   const addRecord = useCallback((iso: string, patch?: Partial<WorkRecord>) => {
     commit((prev) => {
@@ -508,12 +527,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [commit]);
 
   const removeRecord = useCallback((id: string) => {
+    const before = dataRef.current;
+    const rec = before.records.find((r) => r.id === id);
     commit((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.id !== id) }));
-  }, [commit]);
+    if (rec) undoable(before, '已删除 ' + rec.date.slice(5).replace('-', '/') + ' 的一条记录');
+  }, [commit, undoable]);
 
   const clearDay = useCallback((iso: string) => {
+    const before = dataRef.current;
+    if (!before.records.some((r) => r.date === iso)) return;
     commit((prev) => Object.assign({}, prev, { records: prev.records.filter((r) => r.date !== iso) }));
-  }, [commit]);
+    undoable(before, '已清空 ' + iso.slice(5).replace('-', '/') + ' 的工时');
+  }, [commit, undoable]);
 
   const setMonthMeal = useCallback((month: string, value: number | null) => {
     commit((prev) => {
@@ -527,6 +552,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** 批量：把工时/备注一次性套用到选中的每一天 */
   const batchApply = useCallback((dates: string[], patch: BatchPatch) => {
     if (dates.length === 0) return;
+    const before = dataRef.current;
     commit((prev) => {
       let records = prev.records.slice();
 
@@ -558,7 +584,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       return Object.assign({}, prev, { records });
     });
-  }, [commit]);
+    if (typeof patch.hours === 'number' && patch.hours <= 0) {
+      undoable(before, '已清空 ' + dates.length + ' 天的工时');
+    }
+  }, [commit, undoable]);
 
   const replaceAll = useCallback((next: AppData) => commit(next), [commit]);
 

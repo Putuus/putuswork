@@ -87,9 +87,25 @@ export function Toasts({ items, onDismiss }: { items: Toast[]; onDismiss: (id: s
   if (items.length === 0) return null;
   const last = items[items.length - 1];
   return (
-    <div className={'toast' + (last.kind === 'warn' ? ' toast--warn' : ' toast--ok')} role="status" onClick={() => onDismiss(last.id)}>
+    <div className={'toast' + (last.kind === 'warn' ? ' toast--warn' : ' toast--ok')} role="status">
       <span aria-hidden="true">{last.kind === 'warn' ? '⚠️' : '✅'}</span>
       <span>{last.text}</span>
+      {last.action ? (
+        <button
+          type="button"
+          className="toast__action"
+          onClick={() => {
+            last.action?.run();
+            onDismiss(last.id);
+          }}
+        >
+          {last.action.label}
+        </button>
+      ) : (
+        <button type="button" className="toast__dismiss" aria-label="关闭提示" onClick={() => onDismiss(last.id)}>
+          ×
+        </button>
+      )}
     </div>
   );
 }

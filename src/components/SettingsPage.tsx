@@ -179,8 +179,12 @@ export function SettingsPage() {
                       return;
                     }
                     if (!window.confirm('恢复会覆盖当前本地数据，继续？')) return;
+                    const before = data;
                     replaceAll(next);
-                    toast('已从 JSON 恢复 ' + next.records.length + ' 条记录');
+                    toast('已从 JSON 恢复 ' + next.records.length + ' 条记录', 'ok', {
+                      label: '撤销',
+                      run: () => replaceAll(before),
+                    });
                   })();
                 }}
               />
